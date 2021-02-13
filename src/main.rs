@@ -16,48 +16,54 @@ error_chain! {
 #[tokio::main]
 async fn main() -> Result<()> {
     let content_type = "collections"; // TODO: get it from CLI
-    let root = Url::parse("https://galaxy.ansible.com/api/")?; // TODO: get it from CLI
-    let target = match content_type {
-        "roles" => root.join("v1/roles")?,
-        "collections" => root.join("v2/collections")?,
+    let root = Url::parse("https://galaxy.ansible.com/")?; // TODO: get it from CLI
+    let mut target = match content_type {
+        "roles" => root.join("api/v1/roles/?page_size=100")?,
+        "collections" => root.join("api/v2/collections/?page_size=100")?,
         _ => panic!("Invalid content type!"),
     };
-    let response = reqwest::get(target.as_str()).await?;
-    let results = response.json::<Value>().await?;
-    for data in results.as_object().unwrap()["results"].as_array().unwrap() {
-        let content_path = format!(
-            "{}/{}/{}/",
-            content_type,
-            data["namespace"]["name"].as_str().unwrap(),
-            data["name"].as_str().unwrap(),
-        );
-        async_std::fs::create_dir_all(&content_path).await?;
-        download_json(
-            format!("{}metadata.json", content_path).as_str(),
-            data.to_string(),
-        )
-        .await?;
-        let response = reqwest::get(data["latest_version"]["href"].as_str().unwrap()).await?;
-        let json_response = response.json::<Value>().await?;
-        let version_path = format!(
-            "{}/{}/{}/{}/",
-            content_type,
-            json_response["namespace"]["name"].as_str().unwrap(),
-            json_response["collection"]["name"].as_str().unwrap(),
-            json_response["version"].as_str().unwrap(),
-        );
-        async_std::fs::create_dir_all(&version_path).await?;
-        download_json(
-            format!("{}metadata.json", version_path).as_str(),
-            data.to_string(),
-        )
-        .await?;
-        let download_url = Url::parse(json_response["download_url"].as_str().unwrap())?;
-        let response = reqwest::get(download_url.as_str()).await?;
-        let filename = download_url.path_segments().unwrap().last().unwrap();
-        download_tar(format!("{}{}", version_path, filename).as_str(), response).await?
+    loop {
+        let response = reqwest::get(target.as_str()).await?;
+        let results = response.json::<Value>().await?;
+        for data in results.as_object().unwrap()["results"].as_array().unwrap() {
+            let content_path = format!(
+                "{}/{}/{}/",
+                content_type,
+                data["namespace"]["name"].as_str().unwrap(),
+                data["name"].as_str().unwrap(),
+            );
+            async_std::fs::create_dir_all(&content_path).await?;
+            download_json(
+                format!("{}metadata.json", content_path).as_str(),
+                data.to_string(),
+            )
+            .await?;
+            let response = reqwest::get(data["latest_version"]["href"].as_str().unwrap()).await?;
+            let json_response = response.json::<Value>().await?;
+            let version_path = format!(
+                "{}/{}/{}/{}/",
+                content_type,
+                json_response["namespace"]["name"].as_str().unwrap(),
+                json_response["collection"]["name"].as_str().unwrap(),
+                json_response["version"].as_str().unwrap(),
+            );
+            async_std::fs::create_dir_all(&version_path).await?;
+            download_json(
+                format!("{}metadata.json", version_path).as_str(),
+                data.to_string(),
+            )
+            .await?;
+            let download_url = Url::parse(json_response["download_url"].as_str().unwrap())?;
+            let response = reqwest::get(download_url.as_str()).await?;
+            let filename = download_url.path_segments().unwrap().last().unwrap();
+            download_tar(format!("{}{}", version_path, filename).as_str(), response).await?
+        }
+        if results.as_object().unwrap()["next"].as_str().is_none() {
+            println!("Sync is complete!");
+            break;
+        }
+        target = root.join(results.as_object().unwrap()["next"].as_str().unwrap())?
     }
-
     Ok(())
 }
 

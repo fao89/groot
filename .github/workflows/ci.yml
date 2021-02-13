@@ -48,11 +48,6 @@ jobs:
           command: clippy
           args: -- -D warnings
 
-      - name: Run
-        uses: actions-rs/cargo@v1
-        with:
-          command: run
-
   windows:
     runs-on: windows-latest
     strategy:
@@ -79,11 +74,6 @@ jobs:
         with:
           command: test
 
-      - name: Run
-        uses: actions-rs/cargo@v1
-        with:
-          command: run
-
   macos:
     runs-on: macos-latest
     strategy:
@@ -109,8 +99,3 @@ jobs:
         uses: actions-rs/cargo@v1
         with:
           command: test
-
-      - name: Run
-        uses: actions-rs/cargo@v1
-        with:
-          command: run
