@@ -33,7 +33,7 @@ async fn main() -> Result<()> {
         let results = response.json::<Value>().await?;
         match content_type {
             "roles" => sync_roles(&results).await?,
-            "collections" => sync_collections(&results).await?,
+            "collections" => sync_collections(&results, &root).await?,
             _ => panic!("Invalid content type!"),
         };
         if results.as_object().unwrap()["next"].as_str().is_none() {
@@ -113,7 +113,7 @@ async fn sync_roles(response: &Value) -> Result<()> {
     Ok(())
 }
 
-async fn sync_collections(response: &Value) -> Result<()> {
+async fn sync_collections(response: &Value, root: &Url) -> Result<()> {
     for data in response.as_object().unwrap()["results"].as_array().unwrap() {
         let content_path = format!(
             "collections/{}/{}/",
@@ -126,24 +126,37 @@ async fn sync_collections(response: &Value) -> Result<()> {
             data.to_string(),
         )
         .await?;
-        let response = reqwest::get(data["latest_version"]["href"].as_str().unwrap()).await?;
-        let json_response = response.json::<Value>().await?;
-        let version_path = format!(
-            "collections/{}/{}/{}/",
-            json_response["namespace"]["name"].as_str().unwrap(),
-            json_response["collection"]["name"].as_str().unwrap(),
-            json_response["version"].as_str().unwrap(),
-        );
-        async_std::fs::create_dir_all(&version_path).await?;
-        download_json(
-            format!("{}metadata.json", version_path).as_str(),
-            data.to_string(),
-        )
-        .await?;
-        let download_url = Url::parse(json_response["download_url"].as_str().unwrap())?;
-        let response = reqwest::get(download_url.as_str()).await?;
-        let filename = download_url.path_segments().unwrap().last().unwrap();
-        download_tar(format!("{}{}", version_path, filename).as_str(), response).await?
+        let mut versions_url = format!("{}?page_size=100", data["versions_url"].as_str().unwrap());
+        loop {
+            let response = reqwest::get(versions_url.as_str()).await?;
+            let results = response.json::<Value>().await?;
+            for version in results.as_object().unwrap()["results"].as_array().unwrap() {
+                let response = reqwest::get(version["href"].as_str().unwrap()).await?;
+                let json_response = response.json::<Value>().await?;
+                let version_path = format!(
+                    "collections/{}/{}/{}/",
+                    json_response["namespace"]["name"].as_str().unwrap(),
+                    json_response["collection"]["name"].as_str().unwrap(),
+                    json_response["version"].as_str().unwrap(),
+                );
+                async_std::fs::create_dir_all(&version_path).await?;
+                download_json(
+                    format!("{}metadata.json", version_path).as_str(),
+                    data.to_string(),
+                )
+                .await?;
+                let download_url = Url::parse(json_response["download_url"].as_str().unwrap())?;
+                let response = reqwest::get(download_url.as_str()).await?;
+                let filename = download_url.path_segments().unwrap().last().unwrap();
+                download_tar(format!("{}{}", version_path, filename).as_str(), response).await?
+            }
+            if results.as_object().unwrap()["next"].as_str().is_none() {
+                break;
+            }
+            versions_url = root
+                .join(results.as_object().unwrap()["next"].as_str().unwrap())?
+                .to_string();
+        }
     }
     Ok(())
 }
