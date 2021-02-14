@@ -1,8 +1,12 @@
+mod cli;
 use async_std::fs::File;
 use async_std::path::Path;
 use async_std::prelude::*;
+use cli::Command;
+use cli::Config;
 use error_chain::error_chain;
 use serde_json::Value;
+use structopt::StructOpt;
 use url::Url;
 
 error_chain! {
@@ -15,8 +19,10 @@ error_chain! {
 
 #[tokio::main]
 async fn main() -> Result<()> {
-    let content_type = "collections"; // TODO: get it from CLI
-    let root = Url::parse("https://galaxy.ansible.com/")?; // TODO: get it from CLI
+    let conf = Config::from_args();
+    let Command::Sync(sync_params) = conf.command;
+    let content_type = sync_params.content.as_str();
+    let root = Url::parse(sync_params.url.as_str())?;
     let mut target = match content_type {
         "roles" => root.join("api/v1/roles/?page_size=100")?,
         "collections" => root.join("api/v2/collections/?page_size=100")?,

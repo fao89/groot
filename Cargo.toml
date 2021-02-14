@@ -17,3 +17,4 @@ tokio = { version = "1.2", features = ["macros", "rt-multi-thread"] }
 error-chain = "0.12"
 url = "2.2"
 async-std = "1.9"
+structopt = "0.3"
