@@ -1,16 +1,9 @@
+use anyhow::{Context, Result};
 use async_std::fs::File;
 use async_std::path::Path;
 use async_std::prelude::*;
 use async_std::task;
-use error_chain::error_chain;
 use std::time::Duration;
-
-error_chain! {
-     foreign_links {
-         Io(async_std::io::Error);
-         HttpRequest(reqwest::Error);
-     }
-}
 
 pub async fn download_tar(filename: &str, response: reqwest::Response) -> Result<()> {
     println!("Downloading {} ...", filename);
@@ -38,11 +31,15 @@ pub async fn download_json(filename: &str, content: String) -> Result<()> {
 }
 
 pub async fn get_with_retry(url: &str) -> Result<reqwest::Response> {
-    let mut response = reqwest::get(url).await?;
+    let mut response = reqwest::get(url)
+        .await
+        .with_context(|| format!("Failed to get {}", url))?;
     if !response.status().is_success() {
         task::sleep(Duration::from_secs(60)).await;
         println!("\nStatus {} - Retrying...\n", response.status());
-        response = reqwest::get(url).await?;
+        response = reqwest::get(url)
+            .await
+            .with_context(|| format!("Failed to get {}", url))?;
     }
     Ok(response)
 }
