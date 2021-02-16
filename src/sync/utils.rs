@@ -1,7 +1,9 @@
 use async_std::fs::File;
 use async_std::path::Path;
 use async_std::prelude::*;
+use async_std::task;
 use error_chain::error_chain;
+use std::time::Duration;
 
 error_chain! {
      foreign_links {
@@ -33,4 +35,14 @@ pub async fn download_json(filename: &str, content: String) -> Result<()> {
     };
     file.write_all(&content.as_bytes()).await?;
     Ok(())
+}
+
+pub async fn get_with_retry(url: &str) -> Result<reqwest::Response> {
+    let mut response = reqwest::get(url).await?;
+    if !response.status().is_success() {
+        task::sleep(Duration::from_secs(60)).await;
+        println!("\nStatus {} - Retrying...\n", response.status());
+        response = reqwest::get(url).await?;
+    }
+    Ok(response)
 }

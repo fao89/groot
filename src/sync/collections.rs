@@ -1,4 +1,4 @@
-use super::{download_json, download_tar};
+use super::{download_json, download_tar, get_with_retry};
 use error_chain::error_chain;
 use futures::future::try_join_all;
 use serde_json::Value;
@@ -39,7 +39,7 @@ async fn fetch_collection(data: &Value) -> Result<()> {
 async fn fetch_versions(url: &Value) -> Result<()> {
     let mut versions_url = format!("{}?page_size=20", url.as_str().unwrap());
     loop {
-        let response = reqwest::get(versions_url.as_str()).await?;
+        let response = get_with_retry(versions_url.as_str()).await.unwrap();
         let json_response = response.json::<Value>().await?;
         let results = json_response.as_object().unwrap()["results"]
             .as_array()
@@ -64,7 +64,9 @@ async fn fetch_versions(url: &Value) -> Result<()> {
 }
 
 async fn fetch_collection_version(data: &Value) -> Result<()> {
-    let response = reqwest::get(data["href"].as_str().unwrap()).await?;
+    let response = get_with_retry(data["href"].as_str().unwrap())
+        .await
+        .unwrap();
     let json_response = response.json::<Value>().await?;
     let version_path = format!(
         "collections/{}/{}/{}/",
@@ -80,7 +82,7 @@ async fn fetch_collection_version(data: &Value) -> Result<()> {
     .await
     .unwrap();
     let download_url = Url::parse(json_response["download_url"].as_str().unwrap())?;
-    let response = reqwest::get(download_url.as_str()).await?;
+    let response = get_with_retry(download_url.as_str()).await.unwrap();
     let filename = download_url.path_segments().unwrap().last().unwrap();
     download_tar(format!("{}{}", version_path, filename).as_str(), response)
         .await

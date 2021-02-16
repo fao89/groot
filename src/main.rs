@@ -5,7 +5,7 @@ use cli::Config;
 use error_chain::error_chain;
 use serde_json::Value;
 use structopt::StructOpt;
-use sync::{sync_collections, sync_roles};
+use sync::{get_with_retry, sync_collections, sync_roles};
 use url::Url;
 
 error_chain! {
@@ -27,7 +27,7 @@ async fn main() -> Result<()> {
         _ => panic!("Invalid content type!"),
     };
     loop {
-        let response = reqwest::get(target.as_str()).await?;
+        let response = get_with_retry(target.as_str()).await.unwrap();
         let results = response.json::<Value>().await?;
         match content_type {
             "roles" => sync_roles(&results).await.unwrap(),
