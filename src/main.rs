@@ -23,7 +23,7 @@ async fn main() -> Result<()> {
     let root = Url::parse(sync_params.url.as_str())?;
     let mut target = match content_type {
         "roles" => root.join("api/v1/roles/?page_size=100")?,
-        "collections" => root.join("api/v2/collections/?page_size=100")?,
+        "collections" => root.join("api/v2/collections/?page_size=10")?,
         _ => panic!("Invalid content type!"),
     };
     loop {

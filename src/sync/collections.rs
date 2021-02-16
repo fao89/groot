@@ -37,7 +37,7 @@ async fn fetch_collection(data: &Value) -> Result<()> {
 }
 
 async fn fetch_versions(url: &Value) -> Result<()> {
-    let mut versions_url = format!("{}?page_size=100", url.as_str().unwrap());
+    let mut versions_url = format!("{}?page_size=20", url.as_str().unwrap());
     loop {
         let response = reqwest::get(versions_url.as_str()).await?;
         let json_response = response.json::<Value>().await?;
