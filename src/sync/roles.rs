@@ -21,7 +21,7 @@ async fn fetch_role(data: &Value) -> Result<()> {
             .unwrap(),
         data["name"].as_str().unwrap(),
     );
-    async_std::fs::create_dir_all(&content_path)
+    tokio::fs::create_dir_all(&content_path)
         .await
         .with_context(|| format!("Failed to create dir {}", content_path))?;
     download_json(
@@ -58,7 +58,7 @@ async fn fetch_role_version(data: &Value, version: &Value) -> Result<()> {
         data["name"].as_str().unwrap(),
         version["name"].as_str().unwrap(),
     );
-    async_std::fs::create_dir_all(&version_path)
+    tokio::fs::create_dir_all(&version_path)
         .await
         .with_context(|| format!("Failed to create dir {}", version_path))?;
     download_json(

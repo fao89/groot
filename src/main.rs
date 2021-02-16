@@ -19,7 +19,7 @@ async fn main() -> Result<()> {
             .join("api/v1/roles/?page_size=100")
             .context("Failed to join api/v1/roles")?,
         "collections" => root
-            .join("api/v2/collections/?page_size=10")
+            .join("api/v2/collections/?page_size=20")
             .context("Failed to join api/v2/collections")?,
         _ => panic!("Invalid content type!"),
     };

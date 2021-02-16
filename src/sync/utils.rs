@@ -1,16 +1,13 @@
 use anyhow::{Context, Result};
-use async_std::fs::File;
-use async_std::path::Path;
-use async_std::prelude::*;
-use async_std::task;
 use std::time::Duration;
+use tokio::fs::File;
+use tokio::io::AsyncWriteExt;
+use tokio::time;
 
 pub async fn download_tar(filename: &str, response: reqwest::Response) -> Result<()> {
     println!("Downloading {} ...", filename);
 
-    let path = Path::new(filename);
-
-    let mut file = match File::create(&path).await {
+    let mut file = match File::create(filename).await {
         Err(why) => panic!("couldn't create {}", why),
         Ok(file) => file,
     };
@@ -20,9 +17,7 @@ pub async fn download_tar(filename: &str, response: reqwest::Response) -> Result
 }
 
 pub async fn download_json(filename: &str, content: String) -> Result<()> {
-    let path = Path::new(filename);
-
-    let mut file = match File::create(&path).await {
+    let mut file = match File::create(filename).await {
         Err(why) => panic!("couldn't create {}", why),
         Ok(file) => file,
     };
@@ -35,7 +30,7 @@ pub async fn get_with_retry(url: &str) -> Result<reqwest::Response> {
         .await
         .with_context(|| format!("Failed to get {}", url))?;
     if !response.status().is_success() {
-        task::sleep(Duration::from_secs(60)).await;
+        time::sleep(Duration::from_secs(60)).await;
         println!("\nStatus {} - Retrying...\n", response.status());
         response = reqwest::get(url)
             .await
