@@ -12,17 +12,14 @@ error_chain! {
      }
 }
 
-pub async fn sync_collections(response: &Value, root: &Url) -> Result<()> {
+pub async fn sync_collections(response: &Value) -> Result<()> {
     let results = response.as_object().unwrap()["results"].as_array().unwrap();
-    let collection_futures: Vec<_> = results
-        .iter()
-        .map(|data| fetch_collection(&data, root))
-        .collect();
+    let collection_futures: Vec<_> = results.iter().map(|data| fetch_collection(&data)).collect();
     try_join_all(collection_futures).await?;
     Ok(())
 }
 
-async fn fetch_collection(data: &Value, base_url: &Url) -> Result<()> {
+async fn fetch_collection(data: &Value) -> Result<()> {
     let content_path = format!(
         "collections/{}/{}/",
         data["namespace"]["name"].as_str().unwrap(),
@@ -35,11 +32,11 @@ async fn fetch_collection(data: &Value, base_url: &Url) -> Result<()> {
     )
     .await
     .unwrap();
-    fetch_versions(&data["versions_url"], base_url).await?;
+    fetch_versions(&data["versions_url"]).await?;
     Ok(())
 }
 
-async fn fetch_versions(url: &Value, base_url: &Url) -> Result<()> {
+async fn fetch_versions(url: &Value) -> Result<()> {
     let mut versions_url = format!("{}?page_size=100", url.as_str().unwrap());
     loop {
         let response = reqwest::get(versions_url.as_str()).await?;
@@ -58,8 +55,9 @@ async fn fetch_versions(url: &Value, base_url: &Url) -> Result<()> {
         {
             break;
         }
-        versions_url = base_url
-            .join(json_response.as_object().unwrap()["next"].as_str().unwrap())?
+        versions_url = json_response.as_object().unwrap()["next"]
+            .as_str()
+            .unwrap()
             .to_string();
     }
     Ok(())

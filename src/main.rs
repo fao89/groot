@@ -31,14 +31,14 @@ async fn main() -> Result<()> {
         let results = response.json::<Value>().await?;
         match content_type {
             "roles" => sync_roles(&results).await.unwrap(),
-            "collections" => sync_collections(&results, &root).await.unwrap(),
+            "collections" => sync_collections(&results).await.unwrap(),
             _ => panic!("Invalid content type!"),
         };
         if results.as_object().unwrap()["next"].as_str().is_none() {
             println!("Sync is complete!");
             break;
         }
-        target = root.join(results.as_object().unwrap()["next"].as_str().unwrap())?
+        target = root.join(results.as_object().unwrap()["next_link"].as_str().unwrap())?
     }
     Ok(())
 }
