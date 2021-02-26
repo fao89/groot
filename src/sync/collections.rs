@@ -1,4 +1,4 @@
-use super::{download_json, download_tar, get_with_retry};
+use super::{download_json, download_tar, get_json, get_with_retry};
 use anyhow::{Context, Result};
 use futures::future::try_join_all;
 use serde_json::Value;
@@ -13,7 +13,7 @@ pub async fn sync_collections(response: &Value) -> Result<()> {
     Ok(())
 }
 
-async fn fetch_collection(data: &Value) -> Result<()> {
+pub async fn fetch_collection(data: &Value) -> Result<()> {
     let content_path = format!(
         "collections/{}/{}/",
         data["namespace"]["name"].as_str().unwrap(),
@@ -42,11 +42,7 @@ async fn fetch_collection(data: &Value) -> Result<()> {
 async fn fetch_versions(url: &Value) -> Result<()> {
     let mut versions_url = format!("{}?page_size=20", url.as_str().unwrap());
     loop {
-        let response = get_with_retry(versions_url.as_str()).await?;
-        let json_response = response
-            .json::<Value>()
-            .await
-            .with_context(|| format!("Failed to parse JSON from {}", versions_url))?;
+        let json_response = get_json(versions_url.as_str()).await?;
         let results = json_response.as_object().unwrap()["results"]
             .as_array()
             .unwrap();
@@ -72,11 +68,7 @@ async fn fetch_versions(url: &Value) -> Result<()> {
 }
 
 async fn fetch_collection_version(data: &Value) -> Result<()> {
-    let response = get_with_retry(data["href"].as_str().unwrap()).await?;
-    let json_response = response
-        .json::<Value>()
-        .await
-        .with_context(|| format!("Failed to parse JSON from {}", data["href"]))?;
+    let json_response = get_json(data["href"].as_str().unwrap()).await?;
     let version_path = format!(
         "collections/{}/{}/{}/",
         json_response["namespace"]["name"].as_str().unwrap(),

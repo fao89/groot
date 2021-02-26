@@ -48,6 +48,15 @@ jobs:
           command: clippy
           args: -- -D warnings
 
+      - name: Get requirements.yml
+        run: curl https://raw.githubusercontent.com/pulp/pulp_installer/master/requirements.yml -o requirements.yml
+
+      - name: Run
+        uses: actions-rs/cargo@v1
+        with:
+          command: run
+          args: -- sync --requirement requirements.yml
+
   windows:
     runs-on: windows-latest
     strategy:
@@ -74,6 +83,15 @@ jobs:
         with:
           command: test
 
+      - name: Get requirements.yml
+        run: curl https://raw.githubusercontent.com/pulp/pulp_installer/master/requirements.yml -o requirements.yml
+
+      - name: Run
+        uses: actions-rs/cargo@v1
+        with:
+          command: run
+          args: -- sync --requirement requirements.yml
+
   macos:
     runs-on: macos-latest
     strategy:
@@ -99,3 +117,12 @@ jobs:
         uses: actions-rs/cargo@v1
         with:
           command: test
+
+      - name: Get requirements.yml
+        run: curl https://raw.githubusercontent.com/pulp/pulp_installer/master/requirements.yml -o requirements.yml
+
+      - name: Run
+        uses: actions-rs/cargo@v1
+        with:
+          command: run
+          args: -- sync --requirement requirements.yml

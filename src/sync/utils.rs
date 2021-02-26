@@ -1,4 +1,5 @@
 use anyhow::{Context, Result};
+use serde_json::Value;
 use std::time::Duration;
 use tokio::fs::File;
 use tokio::io::AsyncWriteExt;
@@ -37,4 +38,13 @@ pub async fn get_with_retry(url: &str) -> Result<reqwest::Response> {
             .with_context(|| format!("Failed to get {}", url))?;
     }
     Ok(response)
+}
+
+pub async fn get_json(url: &str) -> Result<Value> {
+    let response = get_with_retry(url).await?;
+    let values = response
+        .json::<Value>()
+        .await
+        .context(format!("Failed to parse JSON from {}", url))?;
+    Ok(values)
 }

@@ -16,7 +16,13 @@ pub enum Command {
 #[derive(Debug, StructOpt)]
 #[structopt(about = "groot sync command parameters")]
 pub struct SyncParams {
-    #[structopt(name = "content", long = "content", short = "c", required = true)]
+    #[structopt(
+        name = "content",
+        long = "content",
+        short = "c",
+        required = false,
+        default_value = ""
+    )]
     pub content: String,
     #[structopt(
         name = "url",
@@ -26,4 +32,12 @@ pub struct SyncParams {
         default_value = "https://galaxy.ansible.com/"
     )]
     pub url: String,
+    #[structopt(
+        name = "requirement",
+        long = "requirement",
+        short = "r",
+        required = false,
+        default_value = ""
+    )]
+    pub requirement: String,
 }
