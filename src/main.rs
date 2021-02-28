@@ -8,10 +8,14 @@ use serde_json::json;
 use std::collections::HashMap;
 use std::fs;
 use std::io::prelude::*;
+use std::process;
 use structopt::StructOpt;
 use sync::{fetch_collection, get_json, sync_collections, sync_roles};
 use url::Url;
-use warp::Filter;
+use warp::{
+    hyper::{header, Body, Response, StatusCode},
+    Filter,
+};
 use yaml_rust::YamlLoader;
 
 #[tokio::main]
@@ -21,11 +25,16 @@ async fn main() -> Result<()> {
         println!("Serving content at: http://127.0.0.1:3030/");
         serve_content().await?;
     }
+    if conf.command.is_none() {
+        eprintln!("Please refer to: --help");
+        process::exit(1);
+    }
     let Command::Sync(sync_params) = conf.command.unwrap();
     let content_type = sync_params.content.as_str();
     let root = Url::parse(sync_params.url.as_str()).context("Failed to parse URL")?;
     if sync_params.requirement.is_empty() && sync_params.content.is_empty() {
-        panic!("Please specify a content type or requirements.yml")
+        eprintln!("Please specify a content type or requirements.yml");
+        process::exit(1);
     } else if !sync_params.requirement.is_empty() {
         process_requirements(&root, sync_params.requirement).await?;
     } else {
@@ -112,16 +121,35 @@ async fn serve_content() -> Result<()> {
     pretty_env_logger::init();
     let log = warp::log("groot::api");
     let collection_prefix = warp::path!("api" / "v2" / "collections" / ..);
-    let roles = warp::path!("api" / "v1" / "roles")
+    let roles = warp::get()
+        .and(warp::path!("api" / "v1" / "roles"))
         .and(warp::query::<HashMap<String, String>>())
         .map(|p: HashMap<String, String>| {
-            let namespace = p.get("owner__username").unwrap();
-            let name = p.get("name").unwrap();
+            let empty_string = String::from("");
+            let namespace = p.get("owner__username").unwrap_or(&empty_string);
+            let name = p.get("name").unwrap_or(&empty_string);
+            if namespace.is_empty() || name.is_empty() {
+                return Response::builder()
+                    .status(StatusCode::BAD_REQUEST)
+                    .header(header::CONTENT_TYPE, "application/json")
+                    .body(Body::from(
+                        "{\"Please specify the following query params\": [\"owner__username\", \"name\"]}",
+                    ));
+            }
             let path = format!("roles/{}/{}/metadata.json", namespace, name);
-            let data = fs::read_to_string(path).expect("Unable to read file");
-            let res: serde_json::Value = serde_json::from_str(&data).expect("Unable to parse");
-            let results = json!({ "results": [res] });
-            warp::reply::json(&results)
+            let data = fs::read_to_string(&path).unwrap_or(empty_string);
+            if data.is_empty() {
+                return Response::builder()
+                    .status(StatusCode::NOT_FOUND)
+                    .header(header::CONTENT_TYPE, "application/json")
+                    .body(Body::from(
+                        format!("{{\"File not found\": \"{}\"}}", path),
+                    ));
+            }
+            let results = format!("{{\"results\": [{}]}}", data);
+            Response::builder()
+                .header(header::CONTENT_TYPE, "application/json")
+                .body(Body::from(results))
         })
         .with(log);
 
@@ -133,12 +161,21 @@ async fn serve_content() -> Result<()> {
         })
         .with(log);
 
-    let collection = warp::path!(String / String)
+    let collection = warp::get()
+        .and(warp::path!(String / String))
         .map(|namespace, name| {
+            let empty_string = String::from("");
             let path = format!("collections/{}/{}/metadata.json", namespace, name);
-            let data = fs::read_to_string(path).expect("Unable to read file");
-            let res: serde_json::Value = serde_json::from_str(&data).expect("Unable to parse");
-            warp::reply::json(&res)
+            let data = fs::read_to_string(&path).unwrap_or(empty_string);
+            if data.is_empty() {
+                return Response::builder()
+                    .status(StatusCode::NOT_FOUND)
+                    .header(header::CONTENT_TYPE, "application/json")
+                    .body(Body::from(format!("{{\"File not found\": \"{}\"}}", path)));
+            }
+            Response::builder()
+                .header(header::CONTENT_TYPE, "application/json")
+                .body(Body::from(data))
         })
         .with(log);
 
@@ -153,15 +190,24 @@ async fn serve_content() -> Result<()> {
             warp::reply::json(&data)
         }).with(log);
 
-    let collection_version = warp::path!(String / String / "versions" / String)
+    let collection_version = warp::get()
+        .and(warp::path!(String / String / "versions" / String))
         .map(|namespace, name, version| {
+            let empty_string = String::from("");
             let path = format!(
                 "collections/{}/{}/versions/{}/metadata.json",
                 namespace, name, version
             );
-            let data = fs::read_to_string(path).expect("Unable to read file");
-            let res: serde_json::Value = serde_json::from_str(&data).expect("Unable to parse");
-            warp::reply::json(&res)
+            let data = fs::read_to_string(&path).unwrap_or(empty_string);
+            if data.is_empty() {
+                return Response::builder()
+                    .status(StatusCode::NOT_FOUND)
+                    .header(header::CONTENT_TYPE, "application/json")
+                    .body(Body::from(format!("{{\"File not found\": \"{}\"}}", path)));
+            }
+            Response::builder()
+                .header(header::CONTENT_TYPE, "application/json")
+                .body(Body::from(data))
         })
         .with(log);
 
