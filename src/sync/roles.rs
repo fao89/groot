@@ -21,49 +21,59 @@ async fn fetch_role(data: &Value) -> Result<()> {
             .unwrap(),
         data["name"].as_str().unwrap(),
     );
+    let role_url = data["url"].as_str().unwrap();
+    let role_id = data["id"].to_string();
+    let new_id = format!(
+        "\"{}/{}\"",
+        data["summary_fields"]["namespace"]["name"]
+            .as_str()
+            .unwrap(),
+        data["name"].as_str().unwrap(),
+    );
     tokio::fs::create_dir_all(&content_path)
         .await
         .with_context(|| format!("Failed to create dir {}", content_path))?;
     download_json(
         format!("{}metadata.json", content_path).as_str(),
-        data.to_string(),
+        data.to_string()
+            .replace("github_", "groot_")
+            .replace(role_url, content_path.as_str())
+            .replace(role_id.as_str(), new_id.as_str()),
     )
     .await
     .unwrap();
-    fetch_versions(&data).await.with_context(|| {
-        format!(
-            "Failed to fetch collection versions from {}",
-            data["versions_url"]
-        )
-    })?;
+    fetch_versions(&data)
+        .await
+        .with_context(|| format!("Failed to fetch role versions from {}", data["commit_url"]))?;
     Ok(())
 }
 async fn fetch_versions(data: &Value) -> Result<()> {
     let versions = data["summary_fields"]["versions"].as_array().unwrap();
     let version_futures: Vec<_> = versions
         .iter()
-        .map(|version| fetch_role_version(data, &version))
+        .map(|version| fetch_role_version(data, &version["name"]))
         .collect();
     try_join_all(version_futures)
         .await
         .context("Failed to join role versions futures")?;
+    fetch_role_version(data, &data["github_branch"]).await?;
     Ok(())
 }
 async fn fetch_role_version(data: &Value, version: &Value) -> Result<()> {
     let version_path = format!(
-        "roles/{}/{}/{}/",
+        "roles/{}/{}/versions/{}/",
         data["summary_fields"]["namespace"]["name"]
             .as_str()
             .unwrap(),
         data["name"].as_str().unwrap(),
-        version["name"].as_str().unwrap(),
+        version.as_str().unwrap(),
     );
     tokio::fs::create_dir_all(&version_path)
         .await
         .with_context(|| format!("Failed to create dir {}", version_path))?;
     download_json(
         format!("{}metadata.json", version_path).as_str(),
-        version.to_string(),
+        version.to_string().replace("github_", "groot_"),
     )
     .await
     .unwrap();
@@ -71,7 +81,7 @@ async fn fetch_role_version(data: &Value, version: &Value) -> Result<()> {
         "https://github.com/{}/{}/archive/{}.tar.gz",
         data["github_user"].as_str().unwrap(),
         data["github_repo"].as_str().unwrap(),
-        version["name"].as_str().unwrap()
+        version.as_str().unwrap()
     );
     let download_url = Url::parse(github_url.as_str())
         .with_context(|| format!("Failed to parse url {}", github_url))?;

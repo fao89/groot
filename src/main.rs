@@ -153,6 +153,19 @@ async fn serve_content() -> Result<()> {
         })
         .with(log);
 
+    let role_versions = warp::path!("api" / "v1" / "roles" / String / String / "versions").map(|namespace, name| {
+            let path = format!("roles/{}/{}/versions", namespace, name);
+            let mut refs = Vec::new();
+            for entry in fs::read_dir(&path).unwrap() {
+                let version_number = entry.unwrap().file_name().into_string().unwrap();
+                refs.push(json!({"name": version_number, "source": format!("http://127.0.0.1:3030/{}/{}/{}.tar.gz", path, version_number, version_number)}))
+            }
+            let data = json!({ "results": refs });
+            warp::reply::json(&data)
+        }).with(log);
+
+    let download_role = warp::path("roles").and(warp::fs::dir("roles")).with(log);
+
     let api = warp::path("api")
         .map(|| {
             let data =
@@ -179,7 +192,7 @@ async fn serve_content() -> Result<()> {
         })
         .with(log);
 
-    let versions = warp::path!(String / String / "versions").map(|namespace, name| {
+    let collection_versions = warp::path!(String / String / "versions").map(|namespace, name| {
             let path = format!("collections/{}/{}/versions", namespace, name);
             let mut refs = Vec::new();
             for entry in fs::read_dir(&path).unwrap() {
@@ -211,14 +224,15 @@ async fn serve_content() -> Result<()> {
         })
         .with(log);
 
-    let download = warp::path("collections")
+    let download_collection = warp::path("collections")
         .and(warp::fs::dir("collections"))
         .with(log);
 
     let routes = collection_prefix
-        .and(collection.or(versions).or(collection_version))
-        .or(roles)
-        .or(download)
+        .and(collection.or(collection_versions).or(collection_version))
+        .or(roles.or(role_versions))
+        .or(download_collection)
+        .or(download_role)
         .or(api);
     warp::serve(routes).run(([127, 0, 0, 1], 3030)).await;
     Ok(())
