@@ -4,16 +4,24 @@ use anyhow::{Context, Result};
 use cli::Command;
 use cli::Config;
 use futures::future::try_join_all;
+use serde_json::json;
+use std::collections::HashMap;
+use std::fs;
 use std::io::prelude::*;
 use structopt::StructOpt;
 use sync::{fetch_collection, get_json, sync_collections, sync_roles};
 use url::Url;
+use warp::Filter;
 use yaml_rust::YamlLoader;
 
 #[tokio::main]
 async fn main() -> Result<()> {
     let conf = Config::from_args();
-    let Command::Sync(sync_params) = conf.command;
+    if conf.serve {
+        println!("Serving content at: http://127.0.0.1:3030/");
+        serve_content().await?;
+    }
+    let Command::Sync(sync_params) = conf.command.unwrap();
     let content_type = sync_params.content.as_str();
     let root = Url::parse(sync_params.url.as_str()).context("Failed to parse URL")?;
     if sync_params.requirement.is_empty() && sync_params.content.is_empty() {
@@ -97,5 +105,75 @@ async fn process_requirements(root: &Url, requirements: String) -> Result<()> {
             };
         }
     }
+    Ok(())
+}
+
+async fn serve_content() -> Result<()> {
+    pretty_env_logger::init();
+    let log = warp::log("groot::api");
+    let collection_prefix = warp::path!("api" / "v2" / "collections" / ..);
+    let roles = warp::path!("api" / "v1" / "roles")
+        .and(warp::query::<HashMap<String, String>>())
+        .map(|p: HashMap<String, String>| {
+            let namespace = p.get("owner__username").unwrap();
+            let name = p.get("name").unwrap();
+            let path = format!("roles/{}/{}/metadata.json", namespace, name);
+            let data = fs::read_to_string(path).expect("Unable to read file");
+            let res: serde_json::Value = serde_json::from_str(&data).expect("Unable to parse");
+            let results = json!({ "results": [res] });
+            warp::reply::json(&results)
+        })
+        .with(log);
+
+    let api = warp::path("api")
+        .map(|| {
+            let data =
+                json!({"current_version": "v1", "available_versions": {"v1": "v1/", "v2": "v2/"}});
+            warp::reply::json(&data)
+        })
+        .with(log);
+
+    let collection = warp::path!(String / String)
+        .map(|namespace, name| {
+            let path = format!("collections/{}/{}/metadata.json", namespace, name);
+            let data = fs::read_to_string(path).expect("Unable to read file");
+            let res: serde_json::Value = serde_json::from_str(&data).expect("Unable to parse");
+            warp::reply::json(&res)
+        })
+        .with(log);
+
+    let versions = warp::path!(String / String / "versions").map(|namespace, name| {
+            let path = format!("collections/{}/{}/versions", namespace, name);
+            let mut refs = Vec::new();
+            for entry in fs::read_dir(&path).unwrap() {
+                let version_number = entry.unwrap().file_name().into_string().unwrap();
+                refs.push(json!({"version": version_number, "href": format!("http://127.0.0.1:3030/api/v2/{}/{}/", path, version_number)}))
+            }
+            let data = json!({ "results": refs });
+            warp::reply::json(&data)
+        }).with(log);
+
+    let collection_version = warp::path!(String / String / "versions" / String)
+        .map(|namespace, name, version| {
+            let path = format!(
+                "collections/{}/{}/versions/{}/metadata.json",
+                namespace, name, version
+            );
+            let data = fs::read_to_string(path).expect("Unable to read file");
+            let res: serde_json::Value = serde_json::from_str(&data).expect("Unable to parse");
+            warp::reply::json(&res)
+        })
+        .with(log);
+
+    let download = warp::path("collections")
+        .and(warp::fs::dir("collections"))
+        .with(log);
+
+    let routes = collection_prefix
+        .and(collection.or(versions).or(collection_version))
+        .or(roles)
+        .or(download)
+        .or(api);
+    warp::serve(routes).run(([127, 0, 0, 1], 3030)).await;
     Ok(())
 }

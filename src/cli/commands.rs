@@ -3,8 +3,10 @@ use structopt::StructOpt;
 #[derive(Debug, StructOpt)]
 #[structopt(name = "groot")]
 pub struct Config {
+    #[structopt(name = "serve", short = "s", long = "serve")]
+    pub serve: bool,
     #[structopt(subcommand)]
-    pub command: Command,
+    pub command: Option<Command>,
 }
 
 #[derive(Debug, StructOpt)]

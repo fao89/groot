@@ -24,7 +24,8 @@ pub async fn fetch_collection(data: &Value) -> Result<()> {
         .with_context(|| format!("Failed to create dir {}", content_path))?;
     download_json(
         format!("{}metadata.json", content_path).as_str(),
-        data.to_string(),
+        data.to_string()
+            .replace("https://galaxy.ansible.com/", "http://127.0.0.1:3030/"),
     )
     .await
     .context("Failed to download collection metadata.json")?;
@@ -70,7 +71,7 @@ async fn fetch_versions(url: &Value) -> Result<()> {
 async fn fetch_collection_version(data: &Value) -> Result<()> {
     let json_response = get_json(data["href"].as_str().unwrap()).await?;
     let version_path = format!(
-        "collections/{}/{}/{}/",
+        "collections/{}/{}/versions/{}/",
         json_response["namespace"]["name"].as_str().unwrap(),
         json_response["collection"]["name"].as_str().unwrap(),
         json_response["version"].as_str().unwrap(),
@@ -80,7 +81,17 @@ async fn fetch_collection_version(data: &Value) -> Result<()> {
         .with_context(|| format!("Failed to create dir {}", version_path))?;
     download_json(
         format!("{}metadata.json", version_path).as_str(),
-        json_response.to_string(),
+        json_response
+            .to_string()
+            .replace(
+                "https://galaxy.ansible.com/download",
+                format!(
+                    "http://127.0.0.1:3030/{}",
+                    version_path.strip_suffix("/").unwrap()
+                )
+                .as_str(),
+            )
+            .replace("https://galaxy.ansible.com/", "http://127.0.0.1:3030/"),
     )
     .await
     .context("Failed to save collection version metadata.json")?;
