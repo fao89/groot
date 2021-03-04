@@ -16,6 +16,7 @@ use warp::{
     hyper::{header, Body, Response, StatusCode},
     Filter,
 };
+use yaml_rust::Yaml;
 use yaml_rust::YamlLoader;
 
 #[tokio::main]
@@ -89,13 +90,37 @@ async fn process_requirements(root: &Url, requirements: String) -> Result<()> {
                 .unwrap()
                 .iter()
                 .map(|col| {
-                    format!(
-                        "{}{}",
-                        url_path,
-                        col.as_str().unwrap().replace(".", url_sep)
-                    )
+                    let collection_name = match col.as_str() {
+                        Some(value) => value,
+                        None => col
+                            .as_hash()
+                            .unwrap()
+                            .get(&Yaml::from_str("name"))
+                            .unwrap()
+                            .as_str()
+                            .unwrap(),
+                    };
+                    let path = format!("{}{}", url_path, collection_name.replace(".", url_sep));
+                    if col.as_hash().is_some()
+                        && col
+                            .as_hash()
+                            .unwrap()
+                            .get(&Yaml::from_str("source"))
+                            .is_some()
+                    {
+                        let source_url = Url::parse(
+                            col.as_hash()
+                                .unwrap()
+                                .get(&Yaml::from_str("source"))
+                                .unwrap()
+                                .as_str()
+                                .unwrap(),
+                        );
+                        source_url.unwrap().join(path.as_str()).unwrap()
+                    } else {
+                        root.join(path.as_str()).unwrap()
+                    }
                 })
-                .map(|path| root.join(path.as_str()).unwrap())
                 .collect();
             let collection_futures: Vec<_> = collection_paths
                 .iter()
