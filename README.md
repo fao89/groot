@@ -6,21 +6,21 @@
 
 Mirror:
 ```
-$ curl -L https://github.com/fao89/groot/releases/download/0.2.0/groot-linux-amd64 -o groot
+$ curl -L https://github.com/fao89/groot/releases/download/0.2.1/groot-linux-amd64 -o groot
 $ chmod +x groot
 $ ./groot sync --content <roles | collections>
 ```
 
 From requirements.yml
 ```
-$ curl -L https://github.com/fao89/groot/releases/download/0.2.0/groot-linux-amd64 -o groot
+$ curl -L https://github.com/fao89/groot/releases/download/0.2.1/groot-linux-amd64 -o groot
 $ chmod +x groot
 $ ./groot sync --requirement requirements.yml
 ```
 
 ## Serve content
 ```
-$ curl -L https://github.com/fao89/groot/releases/download/0.2.0/groot-linux-amd64 -o groot
+$ curl -L https://github.com/fao89/groot/releases/download/0.2.1/groot-linux-amd64 -o groot
 $ chmod +x groot
 $ RUST_LOG=groot::api ./groot --serve
 ```
