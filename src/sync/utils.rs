@@ -27,16 +27,35 @@ pub async fn download_json(filename: &str, content: String) -> Result<()> {
 }
 
 pub async fn get_with_retry(url: &str) -> Result<reqwest::Response> {
-    let mut response = reqwest::get(url)
-        .await
-        .with_context(|| format!("Failed to get {}", url))?;
-    if !response.status().is_success() {
-        time::sleep(Duration::from_secs(60)).await;
-        println!("\nStatus {} - Retrying...\n", response.status());
-        response = reqwest::get(url)
-            .await
-            .with_context(|| format!("Failed to get {}", url))?;
-    }
+    let response = match reqwest::get(url).await {
+        Ok(mut resp) => {
+            let status_to_retry = ["429", "502", "503", "504", "520"];
+            let mut retry_time = 10;
+            while status_to_retry.contains(&resp.status().as_str()) {
+                eprintln!(
+                    "\nStatus {} - Retrying in {} seconds...\n",
+                    resp.status().as_str(),
+                    retry_time
+                );
+                if retry_time > 100 {
+                    break;
+                }
+                time::sleep(Duration::from_secs(retry_time)).await;
+                resp = reqwest::get(url)
+                    .await
+                    .with_context(|| format!("Failed to get {}", url))?;
+                retry_time += 20;
+            }
+            resp
+        }
+        Err(e) => {
+            eprintln!("\nERROR - {} - Retrying...\n", e);
+            time::sleep(Duration::from_secs(120)).await;
+            reqwest::get(url)
+                .await
+                .with_context(|| format!("Failed to get {}", url))?
+        }
+    };
     Ok(response)
 }
 
