@@ -25,14 +25,14 @@ pub async fn process_requirements(root: &Url, requirements: String) -> Result<()
             _ => panic!("Invalid content type!"),
         };
         if doc[content].is_array() {
-            let collection_paths: Vec<_> = doc[content]
+            let content_paths: Vec<_> = doc[content]
                 .as_vec()
                 .unwrap()
                 .iter()
-                .map(|col| {
-                    let collection_name = match col.as_str() {
+                .map(|item| {
+                    let content_name = match item.as_str() {
                         Some(value) => value,
-                        None => col
+                        None => item
                             .as_hash()
                             .unwrap()
                             .get(&Yaml::from_str("name"))
@@ -40,16 +40,16 @@ pub async fn process_requirements(root: &Url, requirements: String) -> Result<()
                             .as_str()
                             .unwrap(),
                     };
-                    let path = format!("{}{}", url_path, collection_name.replace(".", url_sep));
-                    if col.as_hash().is_some()
-                        && col
+                    let path = format!("{}{}", url_path, content_name.replace(".", url_sep));
+                    if item.as_hash().is_some()
+                        && item
                             .as_hash()
                             .unwrap()
                             .get(&Yaml::from_str("source"))
                             .is_some()
                     {
                         let source_url = Url::parse(
-                            col.as_hash()
+                            item.as_hash()
                                 .unwrap()
                                 .get(&Yaml::from_str("source"))
                                 .unwrap()
@@ -62,11 +62,11 @@ pub async fn process_requirements(root: &Url, requirements: String) -> Result<()
                     }
                 })
                 .collect();
-            let collection_futures: Vec<_> = collection_paths
+            let content_futures: Vec<_> = content_paths
                 .iter()
                 .map(|data| get_json(&data.as_str()))
                 .collect();
-            let responses: Vec<_> = try_join_all(collection_futures).await?;
+            let responses: Vec<_> = try_join_all(content_futures).await?;
             if content == "roles" {
                 let to_fetch: Vec<_> = responses.iter().map(|value| sync_roles(value)).collect();
                 try_join_all(to_fetch).await?;
