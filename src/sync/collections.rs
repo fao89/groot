@@ -2,6 +2,8 @@ use super::{download_json, download_tar, get_json, get_with_retry};
 use anyhow::{Context, Result};
 use futures::future::try_join_all;
 use serde_json::Value;
+use std::future::Future;
+use std::pin::Pin;
 use url::Url;
 
 pub async fn sync_collections(response: &Value) -> Result<()> {
@@ -70,9 +72,10 @@ async fn fetch_versions(url: &Value) -> Result<()> {
 
 async fn fetch_collection_version(data: &Value) -> Result<()> {
     let json_response = get_json(data["href"].as_str().unwrap()).await?;
+    let namespace = json_response["namespace"]["name"].as_str().unwrap();
     let version_path = format!(
         "collections/{}/{}/versions/{}/",
-        json_response["namespace"]["name"].as_str().unwrap(),
+        namespace,
         json_response["collection"]["name"].as_str().unwrap(),
         json_response["version"].as_str().unwrap(),
     );
@@ -102,5 +105,36 @@ async fn fetch_collection_version(data: &Value) -> Result<()> {
     download_tar(format!("{}{}", version_path, filename).as_str(), response)
         .await
         .with_context(|| format!("Failed to download {}", download_url))?;
+    let root = json_response["collection"]["href"]
+        .as_str()
+        .unwrap()
+        .split(namespace)
+        .next()
+        .unwrap();
+    let dependencies: Vec<String> = json_response["metadata"]["dependencies"]
+        .as_object()
+        .unwrap()
+        .keys()
+        .filter(|x| std::fs::metadata(format!("collections/{}", x.replace(".", "/"))).is_err())
+        .map(|d| {
+            let dep_path = format!("collections/{}", d.replace(".", "/"));
+            std::fs::create_dir_all(&dep_path).unwrap();
+            format!("{}{}/", root, d.replace(".", "/"))
+        })
+        .collect();
+    if !dependencies.is_empty() {
+        fetch_dependencies(dependencies).await;
+    }
     Ok(())
+}
+fn fetch_dependencies(dependencies: Vec<String>) -> Pin<Box<dyn Future<Output = ()>>> {
+    Box::pin(async move {
+        let deps: Vec<_> = dependencies.iter().map(|x| get_json(x)).collect();
+        let deps_json = try_join_all(deps).await.unwrap();
+        let to_fetch: Vec<_> = deps_json
+            .iter()
+            .map(|data| fetch_collection(&data))
+            .collect();
+        try_join_all(to_fetch).await.unwrap();
+    })
 }
