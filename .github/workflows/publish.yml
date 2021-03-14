@@ -15,9 +15,6 @@ jobs:
           - os: ubuntu-latest
             artifact_name: groot
             asset_name: groot-linux-amd64
-          - os: windows-latest
-            artifact_name: groot.exe
-            asset_name: groot-windows-amd64
           - os: macos-latest
             artifact_name: groot
             asset_name: groot-macos-amd64
