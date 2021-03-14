@@ -9,6 +9,20 @@ async fn api_metadata() -> impl Responder {
     web::HttpResponse::Ok().json(resp)
 }
 
+#[get("/sync/{content_type}/")]
+async fn start_sync(web::Path(content_type): web::Path<String>) -> impl Responder {
+    let resp = json!({ "syncing": content_type });
+    std::thread::spawn(|| {
+        std::process::Command::new("groot")
+            .arg("sync")
+            .arg("--content")
+            .arg(content_type)
+            .spawn()
+            .expect("start sync")
+    });
+    web::HttpResponse::Ok().json(resp)
+}
+
 #[get("/api/v1/roles/")]
 async fn role_retrieve(query: web::Query<HashMap<String, String>>) -> impl Responder {
     let empty_string = String::from("");

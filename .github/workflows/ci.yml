@@ -11,6 +11,20 @@ name: Continuous Integration
 jobs:
   ubuntu:
     runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres
+        env:
+          POSTGRES_PASSWORD: groot
+          POSTGRES_USER: groot
+          POSTGRES_DB: groot
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+        ports:
+          - 5432:5432
     strategy:
       matrix:
         rust:
@@ -48,43 +62,10 @@ jobs:
           command: clippy
           args: -- -D warnings
 
-      - name: Get requirements.yml
-        run: curl https://raw.githubusercontent.com/pulp/pulp_installer/master/requirements.yml -o requirements.yml
-
-      - name: Run
-        uses: actions-rs/cargo@v1
-        with:
-          command: run
-          args: -- sync --requirement requirements.yml
-
-  windows:
-    runs-on: windows-latest
-    strategy:
-      matrix:
-        rust:
-          - stable
-
-    steps:
-      - uses: actions/checkout@v2
-
-      - uses: actions-rs/toolchain@v1
-        with:
-          profile: minimal
-          toolchain: ${{ matrix.rust }}
-          override: true
-
-      - name: Build
-        uses: actions-rs/cargo@v1
-        with:
-          command: build
-
-      - name: Test
-        uses: actions-rs/cargo@v1
-        with:
-          command: test
-
-      - name: Get requirements.yml
-        run: curl https://raw.githubusercontent.com/pulp/pulp_installer/master/requirements.yml -o requirements.yml
+      - name: Prepare env
+        run: |
+          mv .env.example .env
+          curl https://raw.githubusercontent.com/pulp/pulp_installer/master/requirements.yml -o requirements.yml
 
       - name: Run
         uses: actions-rs/cargo@v1
@@ -117,12 +98,3 @@ jobs:
         uses: actions-rs/cargo@v1
         with:
           command: test
-
-      - name: Get requirements.yml
-        run: curl https://raw.githubusercontent.com/pulp/pulp_installer/master/requirements.yml -o requirements.yml
-
-      - name: Run
-        uses: actions-rs/cargo@v1
-        with:
-          command: run
-          args: -- sync --requirement requirements.yml

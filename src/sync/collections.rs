@@ -1,5 +1,8 @@
 use super::{download_json, download_tar, get_json, get_with_retry};
+use crate::db_utils::get_pool;
+use crate::models;
 use anyhow::{Context, Result};
+use diesel::prelude::*;
 use futures::future::try_join_all;
 use serde_json::Value;
 use std::future::Future;
@@ -8,6 +11,28 @@ use url::Url;
 
 pub async fn sync_collections(response: &Value) -> Result<()> {
     let results = response.as_object().unwrap()["results"].as_array().unwrap();
+
+    use crate::schema::collections::dsl::*;
+    let db_url = std::env::var("DATABASE_URL").expect("DATABASE_URL");
+    let pool = get_pool(&db_url);
+    let conn = pool.get().expect("couldn't get db connection from pool");
+
+    let to_save: Vec<_> = results
+        .iter()
+        .map(|data| models::CollectionNew {
+            namespace: data["namespace"]["name"].as_str().unwrap(),
+            name: data["name"].as_str().unwrap(),
+        })
+        .collect();
+    println!("====== Saving collections ======");
+    diesel::insert_into(collections)
+        .values(&to_save)
+        .on_conflict((namespace, name))
+        .do_nothing()
+        .execute(&conn)
+        .unwrap();
+
+    // Downloading
     let collection_futures: Vec<_> = results.iter().map(|data| fetch_collection(&data)).collect();
     try_join_all(collection_futures)
         .await
@@ -31,7 +56,20 @@ pub async fn fetch_collection(data: &Value) -> Result<()> {
     )
     .await
     .context("Failed to download collection metadata.json")?;
-    fetch_versions(&data["versions_url"])
+    use crate::schema::collections::dsl::*;
+    let db_url = std::env::var("DATABASE_URL").expect("DATABASE_URL");
+    let pool = get_pool(&db_url);
+    let conn = pool.get().expect("couldn't get db connection from pool");
+    let collection = collections
+        .filter(
+            namespace
+                .eq(data["namespace"]["name"].as_str().unwrap())
+                .and(name.eq(data["name"].as_str().unwrap())),
+        )
+        .first::<models::Collection>(&conn)
+        .optional()?
+        .unwrap();
+    fetch_versions(&data["versions_url"], collection)
         .await
         .with_context(|| {
             format!(
@@ -42,13 +80,35 @@ pub async fn fetch_collection(data: &Value) -> Result<()> {
     Ok(())
 }
 
-async fn fetch_versions(url: &Value) -> Result<()> {
+async fn fetch_versions(url: &Value, collection: models::Collection) -> Result<()> {
     let mut versions_url = format!("{}?page_size=20", url.as_str().unwrap());
     loop {
         let json_response = get_json(versions_url.as_str()).await?;
         let results = json_response.as_object().unwrap()["results"]
             .as_array()
             .unwrap();
+
+        use crate::schema::collection_versions::dsl::*;
+        let db_url = std::env::var("DATABASE_URL").expect("DATABASE_URL");
+        let pool = get_pool(&db_url);
+        let conn = pool.get().expect("couldn't get db connection from pool");
+
+        let to_save: Vec<_> = results
+            .iter()
+            .map(|data| models::CollectionVersionNew {
+                collection_id: &collection.id,
+                version: data["version"].as_str().unwrap(),
+            })
+            .collect();
+        println!("====== Saving collection versions ======");
+        diesel::insert_into(collection_versions)
+            .values(&to_save)
+            .on_conflict((collection_id, version))
+            .do_nothing()
+            .execute(&conn)
+            .unwrap();
+
+        // Downloading
         let collection_version_futures: Vec<_> = results
             .iter()
             .map(|data| fetch_collection_version(&data))

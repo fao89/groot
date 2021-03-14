@@ -1,8 +1,17 @@
 mod cli;
 mod config;
+pub mod db_utils;
+pub mod models;
+pub mod schema;
 mod sync;
 mod web;
+#[macro_use]
+extern crate diesel;
+#[macro_use]
+extern crate diesel_migrations;
 use cli::{Command, Config};
+use db_utils::run_migrations;
+use dotenv::dotenv;
 use std::process;
 use structopt::StructOpt;
 use sync::{mirror_content, process_requirements};
@@ -10,6 +19,9 @@ use url::Url;
 use web::start_actix_server;
 
 fn main() {
+    dotenv().ok();
+    let db_url = std::env::var("DATABASE_URL").expect("DATABASE_URL");
+    run_migrations(&db_url);
     let conf = Config::from_args();
     if conf.serve {
         start_actix_server();
