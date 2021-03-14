@@ -191,6 +191,27 @@ fn fetch_dependencies(dependencies: Vec<String>) -> Pin<Box<dyn Future<Output = 
     Box::pin(async move {
         let deps: Vec<_> = dependencies.iter().map(|x| get_json(x)).collect();
         let deps_json = try_join_all(deps).await.unwrap();
+        use crate::schema::collections::dsl::*;
+        let db_url = std::env::var("DATABASE_URL").expect("DATABASE_URL");
+        let pool = get_pool(&db_url);
+        let conn = pool.get().expect("couldn't get db connection from pool");
+
+        let to_save: Vec<_> = deps_json
+            .iter()
+            .map(|data| models::CollectionNew {
+                namespace: data["namespace"]["name"].as_str().unwrap(),
+                name: data["name"].as_str().unwrap(),
+            })
+            .collect();
+        println!("====== Saving collections ======");
+        diesel::insert_into(collections)
+            .values(&to_save)
+            .on_conflict((namespace, name))
+            .do_nothing()
+            .execute(&conn)
+            .unwrap();
+
+        // Downloading
         let to_fetch: Vec<_> = deps_json
             .iter()
             .map(|data| fetch_collection(&data))
