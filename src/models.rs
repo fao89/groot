@@ -1,5 +1,6 @@
 use crate::schema::*;
 use serde::{Deserialize, Serialize};
+use serde_json::Value;
 
 #[derive(Debug, Serialize, Deserialize, Queryable, Identifiable)]
 #[table_name = "collections"]
@@ -27,6 +28,7 @@ pub struct CollectionVersion {
     pub id: i32,
     pub collection_id: i32,
     pub version: String,
+    pub metadata: Value,
 }
 
 #[derive(Debug, Insertable)]
@@ -34,4 +36,5 @@ pub struct CollectionVersion {
 pub struct CollectionVersionNew<'a> {
     pub collection_id: &'a i32,
     pub version: &'a str,
+    pub metadata: &'a Value,
 }

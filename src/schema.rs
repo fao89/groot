@@ -3,6 +3,7 @@ table! {
         id -> Int4,
         collection_id -> Int4,
         version -> Varchar,
+        metadata -> Json,
     }
 }
 

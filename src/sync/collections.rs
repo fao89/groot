@@ -88,16 +88,26 @@ async fn fetch_versions(url: &Value, collection: models::Collection) -> Result<(
             .as_array()
             .unwrap();
 
+        // Downloading
+        let collection_version_futures: Vec<_> = results
+            .iter()
+            .map(|data| fetch_collection_version(&data))
+            .collect();
+        let downloaded = try_join_all(collection_version_futures)
+            .await
+            .context("Failed to join collection versions futures")?;
+        // DB
         use crate::schema::collection_versions::dsl::*;
         let db_url = std::env::var("DATABASE_URL").expect("DATABASE_URL");
         let pool = get_pool(&db_url);
         let conn = pool.get().expect("couldn't get db connection from pool");
 
-        let to_save: Vec<_> = results
+        let to_save: Vec<_> = downloaded
             .iter()
             .map(|data| models::CollectionVersionNew {
                 collection_id: &collection.id,
                 version: data["version"].as_str().unwrap(),
+                metadata: &data["metadata"],
             })
             .collect();
         println!("====== Saving collection versions ======");
@@ -108,14 +118,6 @@ async fn fetch_versions(url: &Value, collection: models::Collection) -> Result<(
             .execute(&conn)
             .unwrap();
 
-        // Downloading
-        let collection_version_futures: Vec<_> = results
-            .iter()
-            .map(|data| fetch_collection_version(&data))
-            .collect();
-        try_join_all(collection_version_futures)
-            .await
-            .context("Failed to join collection versions futures")?;
         if json_response.as_object().unwrap()["next"]
             .as_str()
             .is_none()
@@ -130,7 +132,7 @@ async fn fetch_versions(url: &Value, collection: models::Collection) -> Result<(
     Ok(())
 }
 
-async fn fetch_collection_version(data: &Value) -> Result<()> {
+async fn fetch_collection_version(data: &Value) -> Result<Value> {
     let json_response = get_json(data["href"].as_str().unwrap()).await?;
     let namespace = json_response["namespace"]["name"].as_str().unwrap();
     let version_path = format!(
@@ -185,7 +187,7 @@ async fn fetch_collection_version(data: &Value) -> Result<()> {
     if !dependencies.is_empty() {
         fetch_dependencies(dependencies).await;
     }
-    Ok(())
+    Ok(json_response)
 }
 fn fetch_dependencies(dependencies: Vec<String>) -> Pin<Box<dyn Future<Output = ()>>> {
     Box::pin(async move {
