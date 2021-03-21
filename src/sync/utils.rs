@@ -17,15 +17,6 @@ pub async fn download_tar(filename: &str, response: reqwest::Response) -> Result
     Ok(())
 }
 
-pub async fn download_json(filename: &str, content: String) -> Result<()> {
-    let mut file = match File::create(filename).await {
-        Err(why) => panic!("couldn't create {}", why),
-        Ok(file) => file,
-    };
-    file.write_all(&content.as_bytes()).await?;
-    Ok(())
-}
-
 pub async fn get_with_retry(url: &str) -> Result<reqwest::Response> {
     let response = match reqwest::get(url).await {
         Ok(mut resp) => {

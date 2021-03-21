@@ -16,12 +16,6 @@ pub struct CollectionNew<'a> {
     pub name: &'a str,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
-pub struct CollectionJson {
-    pub namespace: String,
-    pub name: String,
-}
-
 #[derive(Debug, Serialize, Deserialize, Queryable, Identifiable, Associations)]
 #[table_name = "collection_versions"]
 pub struct CollectionVersion {

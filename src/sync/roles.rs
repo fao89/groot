@@ -1,4 +1,4 @@
-use super::{download_json, download_tar};
+use super::download_tar;
 use anyhow::{Context, Result};
 use futures::future::try_join_all;
 use serde_json::Value;
@@ -21,27 +21,9 @@ async fn fetch_role(data: &Value) -> Result<()> {
             .unwrap(),
         data["name"].as_str().unwrap(),
     );
-    let role_url = data["url"].as_str().unwrap();
-    let role_id = data["id"].to_string();
-    let new_id = format!(
-        "\"{}/{}\"",
-        data["summary_fields"]["namespace"]["name"]
-            .as_str()
-            .unwrap(),
-        data["name"].as_str().unwrap(),
-    );
     tokio::fs::create_dir_all(&content_path)
         .await
         .with_context(|| format!("Failed to create dir {}", content_path))?;
-    download_json(
-        format!("{}metadata.json", content_path).as_str(),
-        data.to_string()
-            .replace("github_", "groot_")
-            .replace(role_url, content_path.as_str())
-            .replace(role_id.as_str(), new_id.as_str()),
-    )
-    .await
-    .unwrap();
     fetch_versions(&data)
         .await
         .with_context(|| format!("Failed to fetch role versions from {}", data["commit_url"]))?;
@@ -71,12 +53,6 @@ async fn fetch_role_version(data: &Value, version: &Value) -> Result<()> {
     tokio::fs::create_dir_all(&version_path)
         .await
         .with_context(|| format!("Failed to create dir {}", version_path))?;
-    download_json(
-        format!("{}metadata.json", version_path).as_str(),
-        version.to_string().replace("github_", "groot_"),
-    )
-    .await
-    .unwrap();
     let github_url = format!(
         "https://github.com/{}/{}/archive/{}.tar.gz",
         data["github_user"].as_str().unwrap(),

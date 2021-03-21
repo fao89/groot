@@ -70,13 +70,7 @@ async fn role_retrieve(query: web::Query<HashMap<String, String>>) -> impl Respo
         let msg = json!({"Please specify the following query params": ["owner__username", "name"]});
         return web::HttpResponse::BadRequest().json(msg);
     }
-    let path = format!("roles/{}/{}/metadata.json", namespace, name);
-    let data = std::fs::read_to_string(&path).unwrap_or(empty_string);
-    if data.is_empty() {
-        let msg = json!({ "File not found": path });
-        return web::HttpResponse::NotFound().json(msg);
-    }
-    let resp: serde_json::Value = serde_json::from_str(&data).unwrap();
+    let resp = json!({"id": "pulp/pulp_rpm_prerequisites"});
     let results = json!({ "results": [resp] });
     web::HttpResponse::Ok().json(results)
 }
@@ -144,31 +138,18 @@ async fn collection_retrieve(
 
 #[get("/api/v2/collections/{namespace}/{name}/versions/")]
 async fn collection_version_list(
-    pool: web::Data<DbPool>,
     web::Path((namespace, name)): web::Path<(String, String)>,
 ) -> impl Responder {
-    use crate::schema::*;
-    let conn = pool.get().expect("couldn't get db connection from pool");
     let config = crate::config::Config::from_env().unwrap();
-    let versions = collections::table
-        .inner_join(collection_versions::table)
-        .select(collection_versions::version)
-        .filter(
-            collections::namespace
-                .eq(&namespace)
-                .and(collections::name.eq(&name)),
-        )
-        .load::<String>(&conn)
-        .unwrap();
-
-    let versions_url = format!(
-        "http://{}:{}/api/v2/collections/{}/{}/versions/",
-        config.server.host, config.server.port, namespace, name
-    );
-    let refs: Vec<_> = versions
-        .iter()
-        .map(|ver| json!({"version": ver, "href": format!("{}{}/", versions_url, ver)}))
-        .collect();
+    let path = format!("collections/{}/{}/versions", namespace, name);
+    let mut refs = Vec::new();
+    for entry in std::fs::read_dir(&path).unwrap() {
+        let version_number = entry.unwrap().file_name().into_string().unwrap();
+        refs.push(json!({
+            "version": version_number,
+            "href": format!("http://{}:{}/api/v2/{}/{}/", config.server.host, config.server.port, path, version_number)
+        }))
+    }
     let data = json!({ "results": refs });
     web::HttpResponse::Ok().json(data)
 }
