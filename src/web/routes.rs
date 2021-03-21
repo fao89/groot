@@ -84,8 +84,17 @@ async fn role_version_list(
     let mut refs = Vec::new();
     for entry in std::fs::read_dir(&path).unwrap() {
         let version_number = entry.unwrap().file_name().into_string().unwrap();
-        if Version::parse(&version_number).is_ok() {
-            refs.push(json!({"name": version_number, "source": format!("http://{}:{}/{}/{}/{}.tar.gz", config.server.host, config.server.port, path, version_number,version_number)}))
+        let current = json!({
+            "name": version_number,
+            "source": format!("http://{}:{}/{}/{}/{}.tar.gz", config.server.host, config.server.port, path, version_number,version_number)
+        });
+        let to_check = if version_number.starts_with('v') {
+            version_number[1..version_number.len()].to_string()
+        } else {
+            version_number
+        };
+        if Version::parse(&to_check).is_ok() {
+            refs.push(current)
         }
     }
     let data = json!({ "results": refs });

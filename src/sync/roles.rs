@@ -1,7 +1,9 @@
-use super::download_tar;
+use super::{download_tar, get_json};
 use anyhow::{Context, Result};
 use futures::future::try_join_all;
 use serde_json::Value;
+use std::future::Future;
+use std::pin::Pin;
 use url::Url;
 
 pub async fn sync_roles(response: &Value) -> Result<()> {
@@ -27,6 +29,25 @@ async fn fetch_role(data: &Value) -> Result<()> {
     fetch_versions(&data)
         .await
         .with_context(|| format!("Failed to fetch role versions from {}", data["commit_url"]))?;
+    let dependencies: Vec<String> = data["summary_fields"]["dependencies"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter(|x| {
+            std::fs::metadata(format!("roles/{}", x.as_str().unwrap().replace(".", "/"))).is_err()
+        })
+        .map(|d| {
+            let dep_path = format!("roles/{}", d.as_str().unwrap().replace(".", "/"));
+            std::fs::create_dir_all(&dep_path).unwrap();
+            format!(
+                "https://galaxy.ansible.com/api/v1/roles/?namespace__name={}",
+                d.as_str().unwrap().replace(".", "&name=")
+            )
+        })
+        .collect();
+    if !dependencies.is_empty() {
+        fetch_dependencies(dependencies).await;
+    }
     Ok(())
 }
 async fn fetch_versions(data: &Value) -> Result<()> {
@@ -69,4 +90,13 @@ async fn fetch_role_version(data: &Value, version: &Value) -> Result<()> {
         .await
         .unwrap();
     Ok(())
+}
+
+fn fetch_dependencies(dependencies: Vec<String>) -> Pin<Box<dyn Future<Output = ()>>> {
+    Box::pin(async move {
+        let deps: Vec<_> = dependencies.iter().map(|x| get_json(x)).collect();
+        let deps_json = try_join_all(deps).await.unwrap();
+        let to_fetch: Vec<_> = deps_json.iter().map(|data| sync_roles(&data)).collect();
+        try_join_all(to_fetch).await.unwrap();
+    })
 }
