@@ -96,7 +96,7 @@ pub async fn process_requirements(root: &Url, requirements: String) -> Result<()
                 // Downloading
                 let to_fetch: Vec<_> = responses
                     .iter()
-                    .map(|value| fetch_collection(value))
+                    .map(|value| fetch_collection(value, &conn))
                     .collect();
                 try_join_all(to_fetch).await?;
             };

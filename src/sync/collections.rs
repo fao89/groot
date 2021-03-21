@@ -9,6 +9,9 @@ use std::future::Future;
 use std::pin::Pin;
 use url::Url;
 
+type CurrentPool =
+    diesel::r2d2::PooledConnection<diesel::r2d2::ConnectionManager<diesel::PgConnection>>;
+
 pub async fn sync_collections(response: &Value) -> Result<()> {
     let results = response.as_object().unwrap()["results"].as_array().unwrap();
 
@@ -33,14 +36,17 @@ pub async fn sync_collections(response: &Value) -> Result<()> {
         .unwrap();
 
     // Downloading
-    let collection_futures: Vec<_> = results.iter().map(|data| fetch_collection(&data)).collect();
+    let collection_futures: Vec<_> = results
+        .iter()
+        .map(|data| fetch_collection(&data, &conn))
+        .collect();
     try_join_all(collection_futures)
         .await
         .context("Failed to join collection futures")?;
     Ok(())
 }
 
-pub async fn fetch_collection(data: &Value) -> Result<()> {
+pub async fn fetch_collection(data: &Value, conn: &CurrentPool) -> Result<()> {
     let content_path = format!(
         "collections/{}/{}/",
         data["namespace"]["name"].as_str().unwrap(),
@@ -51,19 +57,16 @@ pub async fn fetch_collection(data: &Value) -> Result<()> {
         .with_context(|| format!("Failed to create dir {}", content_path))?;
 
     use crate::schema::collections::dsl::*;
-    let db_url = std::env::var("DATABASE_URL").expect("DATABASE_URL");
-    let pool = get_pool(&db_url);
-    let conn = pool.get().expect("couldn't get db connection from pool");
     let collection = collections
         .filter(
             namespace
                 .eq(data["namespace"]["name"].as_str().unwrap())
                 .and(name.eq(data["name"].as_str().unwrap())),
         )
-        .first::<models::Collection>(&conn)
+        .first::<models::Collection>(conn)
         .optional()?
         .unwrap();
-    fetch_versions(&data["versions_url"], collection)
+    fetch_versions(&data["versions_url"], collection, conn)
         .await
         .with_context(|| {
             format!(
@@ -74,7 +77,11 @@ pub async fn fetch_collection(data: &Value) -> Result<()> {
     Ok(())
 }
 
-async fn fetch_versions(url: &Value, collection: models::Collection) -> Result<()> {
+async fn fetch_versions(
+    url: &Value,
+    collection: models::Collection,
+    conn: &CurrentPool,
+) -> Result<()> {
     let mut versions_url = format!("{}?page_size=20", url.as_str().unwrap());
     loop {
         let json_response = get_json(versions_url.as_str()).await?;
@@ -92,10 +99,6 @@ async fn fetch_versions(url: &Value, collection: models::Collection) -> Result<(
             .context("Failed to join collection versions futures")?;
         // DB
         use crate::schema::collection_versions::dsl::*;
-        let db_url = std::env::var("DATABASE_URL").expect("DATABASE_URL");
-        let pool = get_pool(&db_url);
-        let conn = pool.get().expect("couldn't get db connection from pool");
-
         let to_save: Vec<_> = downloaded
             .iter()
             .map(|data| models::CollectionVersionNew {
@@ -110,7 +113,7 @@ async fn fetch_versions(url: &Value, collection: models::Collection) -> Result<(
             .values(&to_save)
             .on_conflict((collection_id, version))
             .do_nothing()
-            .execute(&conn)
+            .execute(conn)
             .unwrap();
 
         if json_response.as_object().unwrap()["next"]
@@ -196,7 +199,7 @@ fn fetch_dependencies(dependencies: Vec<String>) -> Pin<Box<dyn Future<Output = 
         // Downloading
         let to_fetch: Vec<_> = deps_json
             .iter()
-            .map(|data| fetch_collection(&data))
+            .map(|data| fetch_collection(&data, &conn))
             .collect();
         try_join_all(to_fetch).await.unwrap();
     })
