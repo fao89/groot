@@ -29,12 +29,6 @@ services:
     environment:
       SERVER.HOST: 0.0.0.0
       SERVER.PORT: 3030
-      PG.USER: groot
-      PG.PASSWORD: groot
-      PG.HOST: postgres
-      PG.PORT: 5432
-      PG.DBNAME: groot
-      PG.POOL.MAX_SIZE: 30
       DATABASE_URL: postgres://groot:groot@postgres:5432/groot
     deploy:
       resources:
