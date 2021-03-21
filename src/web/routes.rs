@@ -1,13 +1,16 @@
 use crate::models;
-use actix_web::{get, web, Responder};
+use actix_multipart::Multipart;
+use actix_web::{get, post, web, Responder};
 use diesel::prelude::*;
 use diesel::{
     r2d2::{ConnectionManager, Pool},
     PgConnection,
 };
+use futures::{StreamExt, TryStreamExt};
 use semver::Version;
 use serde_json::json;
 use std::collections::HashMap;
+use std::io::Write;
 
 type DbPool = Pool<ConnectionManager<PgConnection>>;
 
@@ -17,7 +20,7 @@ async fn api_metadata() -> impl Responder {
     web::HttpResponse::Ok().json(resp)
 }
 
-#[get("/sync/{content_type}/")]
+#[post("/sync/{content_type}/")]
 async fn start_sync(web::Path(content_type): web::Path<String>) -> impl Responder {
     let resp = json!({ "syncing": content_type });
     std::thread::spawn(|| {
@@ -28,6 +31,33 @@ async fn start_sync(web::Path(content_type): web::Path<String>) -> impl Responde
             .spawn()
             .expect("start sync")
     });
+    web::HttpResponse::Ok().json(resp)
+}
+
+#[post("/sync/")]
+async fn start_req_sync(mut payload: Multipart) -> impl Responder {
+    while let Ok(Some(mut field)) = payload.try_next().await {
+        let mut f = web::block(move || std::fs::File::create("requirements.yml"))
+            .await
+            .unwrap();
+        // Field in turn is stream of *Bytes* object
+        while let Some(chunk) = field.next().await {
+            let data = chunk.unwrap();
+            // filesystem operations are blocking, we have to use thread pool
+            f = web::block(move || f.write_all(&data).map(|_| f))
+                .await
+                .unwrap();
+        }
+    }
+    std::thread::spawn(|| {
+        std::process::Command::new("groot")
+            .arg("sync")
+            .arg("--requirement")
+            .arg("requirements.yml")
+            .spawn()
+            .expect("start sync")
+    });
+    let resp = json!({ "syncing": "requirements file" });
     web::HttpResponse::Ok().json(resp)
 }
 

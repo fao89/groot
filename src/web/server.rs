@@ -29,6 +29,7 @@ pub fn start_actix_server() {
                 .wrap(Logger::default())
                 .service(api_metadata)
                 .service(start_sync)
+                .service(start_req_sync)
                 .service(role_retrieve)
                 .service(role_version_list)
                 .service(collection_retrieve)
