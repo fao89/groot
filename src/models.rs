@@ -27,6 +27,7 @@ pub struct CollectionJson {
 pub struct CollectionVersion {
     pub id: i32,
     pub collection_id: i32,
+    pub artifact: Value,
     pub version: String,
     pub metadata: Value,
 }
@@ -35,6 +36,7 @@ pub struct CollectionVersion {
 #[table_name = "collection_versions"]
 pub struct CollectionVersionNew<'a> {
     pub collection_id: &'a i32,
+    pub artifact: &'a Value,
     pub version: &'a str,
     pub metadata: &'a Value,
 }

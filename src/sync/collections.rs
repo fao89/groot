@@ -1,4 +1,4 @@
-use super::{download_json, download_tar, get_json, get_with_retry};
+use super::{download_tar, get_json, get_with_retry};
 use crate::db_utils::get_pool;
 use crate::models;
 use anyhow::{Context, Result};
@@ -49,13 +49,7 @@ pub async fn fetch_collection(data: &Value) -> Result<()> {
     tokio::fs::create_dir_all(&content_path)
         .await
         .with_context(|| format!("Failed to create dir {}", content_path))?;
-    download_json(
-        format!("{}metadata.json", content_path).as_str(),
-        data.to_string()
-            .replace("https://galaxy.ansible.com/", "http://127.0.0.1:3030/"),
-    )
-    .await
-    .context("Failed to download collection metadata.json")?;
+
     use crate::schema::collections::dsl::*;
     let db_url = std::env::var("DATABASE_URL").expect("DATABASE_URL");
     let pool = get_pool(&db_url);
@@ -106,6 +100,7 @@ async fn fetch_versions(url: &Value, collection: models::Collection) -> Result<(
             .iter()
             .map(|data| models::CollectionVersionNew {
                 collection_id: &collection.id,
+                artifact: &data["artifact"],
                 version: data["version"].as_str().unwrap(),
                 metadata: &data["metadata"],
             })
@@ -144,22 +139,7 @@ async fn fetch_collection_version(data: &Value) -> Result<Value> {
     tokio::fs::create_dir_all(&version_path)
         .await
         .with_context(|| format!("Failed to create dir {}", version_path))?;
-    download_json(
-        format!("{}metadata.json", version_path).as_str(),
-        json_response
-            .to_string()
-            .replace(
-                "https://galaxy.ansible.com/download",
-                format!(
-                    "http://127.0.0.1:3030/{}",
-                    version_path.strip_suffix("/").unwrap()
-                )
-                .as_str(),
-            )
-            .replace("https://galaxy.ansible.com/", "http://127.0.0.1:3030/"),
-    )
-    .await
-    .context("Failed to save collection version metadata.json")?;
+
     let download_url = Url::parse(json_response["download_url"].as_str().unwrap())
         .with_context(|| format!("Failed to parse URL {}", json_response["download_url"]))?;
     let response = get_with_retry(download_url.as_str()).await?;

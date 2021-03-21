@@ -1,7 +1,15 @@
+use crate::models;
 use actix_web::{get, web, Responder};
+use diesel::prelude::*;
+use diesel::{
+    r2d2::{ConnectionManager, Pool},
+    PgConnection,
+};
 use semver::Version;
 use serde_json::json;
 use std::collections::HashMap;
+
+type DbPool = Pool<ConnectionManager<PgConnection>>;
 
 #[get("/api/")]
 async fn api_metadata() -> impl Responder {
@@ -62,40 +70,122 @@ async fn role_version_list(
 
 #[get("/api/v2/collections/{namespace}/{name}/")]
 async fn collection_retrieve(
+    pool: web::Data<DbPool>,
     web::Path((namespace, name)): web::Path<(String, String)>,
 ) -> impl Responder {
-    let empty_string = String::from("");
-    let path = format!("collections/{}/{}/metadata.json", namespace, name);
-    let data = std::fs::read_to_string(&path).unwrap_or(empty_string);
-    let resp: serde_json::Value = serde_json::from_str(&data).unwrap();
+    use crate::schema::*;
+    let conn = pool.get().expect("couldn't get db connection from pool");
+    let config = crate::config::Config::from_env().unwrap();
+    let results = collections::table
+        .inner_join(collection_versions::table)
+        .select((collections::id, (collection_versions::version)))
+        .filter(
+            collections::namespace
+                .eq(&namespace)
+                .and(collections::name.eq(&name)),
+        )
+        .load::<(i32, String)>(&conn)
+        .unwrap();
+    let (collection_id, latest_version) = results
+        .iter()
+        .max_by(|x, y| {
+            Version::parse(&x.1)
+                .unwrap()
+                .cmp(&Version::parse(&y.1).unwrap())
+        })
+        .unwrap();
+
+    let href = format!(
+        "http://{}:{}/api/v2/collections/{}/{}/",
+        config.server.host, config.server.port, namespace, name
+    );
+    let versions_url = format!("{}versions/", href);
+    let latest_href = format!("{}{}/", versions_url, latest_version);
+    let resp = json!({
+        "href": href,
+        "id": collection_id,
+        "name": name,
+        "namespace": {"name": namespace},
+        "versions_url": versions_url,
+        "latest_version":{"version": latest_version, "href": latest_href}
+    });
     web::HttpResponse::Ok().json(resp)
 }
 
 #[get("/api/v2/collections/{namespace}/{name}/versions/")]
 async fn collection_version_list(
+    pool: web::Data<DbPool>,
     web::Path((namespace, name)): web::Path<(String, String)>,
 ) -> impl Responder {
+    use crate::schema::*;
+    let conn = pool.get().expect("couldn't get db connection from pool");
     let config = crate::config::Config::from_env().unwrap();
-    let path = format!("collections/{}/{}/versions", namespace, name);
-    let mut refs = Vec::new();
-    for entry in std::fs::read_dir(&path).unwrap() {
-        let version_number = entry.unwrap().file_name().into_string().unwrap();
-        refs.push(json!({"version": version_number, "href": format!("http://{}:{}/api/v2/{}/{}/", config.server.host, config.server.port, path, version_number)}))
-    }
+    let versions = collections::table
+        .inner_join(collection_versions::table)
+        .select(collection_versions::version)
+        .filter(
+            collections::namespace
+                .eq(&namespace)
+                .and(collections::name.eq(&name)),
+        )
+        .load::<String>(&conn)
+        .unwrap();
+
+    let versions_url = format!(
+        "http://{}:{}/api/v2/collections/{}/{}/versions/",
+        config.server.host, config.server.port, namespace, name
+    );
+    let refs: Vec<_> = versions
+        .iter()
+        .map(|ver| json!({"version": ver, "href": format!("{}{}/", versions_url, ver)}))
+        .collect();
     let data = json!({ "results": refs });
     web::HttpResponse::Ok().json(data)
 }
 
 #[get("/api/v2/collections/{namespace}/{name}/versions/{version}/")]
 async fn collection_version_retrieve(
+    pool: web::Data<DbPool>,
     web::Path((namespace, name, version)): web::Path<(String, String, String)>,
 ) -> impl Responder {
-    let empty_string = String::from("");
-    let path = format!(
-        "collections/{}/{}/versions/{}/metadata.json",
-        namespace, name, version
+    use crate::schema::*;
+    let conn = pool.get().expect("couldn't get db connection from pool");
+    let config = crate::config::Config::from_env().unwrap();
+    let result = collections::table
+        .inner_join(collection_versions::table)
+        .select(collection_versions::all_columns)
+        .filter(
+            collections::namespace
+                .eq(&namespace)
+                .and(collections::name.eq(&name))
+                .and(collection_versions::version.eq(&version)),
+        )
+        .load::<models::CollectionVersion>(&conn)
+        .unwrap();
+    let current_version = result.first().unwrap();
+    let collection_href = format!(
+        "http://{}:{}/api/v2/collections/{}/{}/",
+        config.server.host, config.server.port, namespace, name
     );
-    let data = std::fs::read_to_string(&path).unwrap_or(empty_string);
-    let resp: serde_json::Value = serde_json::from_str(&data).unwrap();
+    let version_url = format!("{}versions/{}/", collection_href, version);
+    let download_url = format!(
+        "http://{}:{}/collections/{}/{}/versions/{}/{}",
+        config.server.host,
+        config.server.port,
+        namespace,
+        name,
+        version,
+        current_version.artifact["filename"].as_str().unwrap()
+    );
+    let resp = json!({
+        "artifact": current_version.artifact,
+        "collection": {"name": name, "id": current_version.collection_id, "href": collection_href},
+        "download_url": download_url,
+        "href": version_url,
+        "id": current_version.id,
+        "metadata": current_version.metadata,
+        "namespace": {"name": namespace},
+        "version": version,
+    });
     web::HttpResponse::Ok().json(resp)
 }

@@ -2,6 +2,7 @@ table! {
     collection_versions (id) {
         id -> Int4,
         collection_id -> Int4,
+        artifact -> Json,
         version -> Varchar,
         metadata -> Json,
     }
