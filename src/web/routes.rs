@@ -70,7 +70,7 @@ async fn role_retrieve(query: web::Query<HashMap<String, String>>) -> impl Respo
         let msg = json!({"Please specify the following query params": ["owner__username", "name"]});
         return web::HttpResponse::BadRequest().json(msg);
     }
-    let resp = json!({"id": "pulp/pulp_rpm_prerequisites"});
+    let resp = json!({ "id": format!("{}/{}", namespace, name) });
     let results = json!({ "results": [resp] });
     web::HttpResponse::Ok().json(results)
 }
