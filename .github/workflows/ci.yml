@@ -65,8 +65,13 @@ jobs:
       - name: Prepare env
         run: |
           mv .env.example .env
-          curl https://raw.githubusercontent.com/pulp/pulp_installer/master/requirements.yml -o requirements.yml
-
+          cat >> requirements.yml<< EOF
+          ---
+          roles:
+            - geerlingguy.postgresql
+          collections:
+            - community.postgresql
+          EOF
       - name: Run
         uses: actions-rs/cargo@v1
         with:
