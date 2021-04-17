@@ -5,29 +5,48 @@
 # I am Groot!
 ![groot](https://www.redringtones.com/wp-content/uploads/2019/04/i-am-groot-ringtone.jpg)
 
+## Required variables
+Please have a `.env` file with the following variables:
+- `SERVER.HOST`: The host address e.g. `127.0.0.1`
+- `SERVER.PORT`: The host port e.g. `3030`
+- `DATABASE_URL`: The postgres DB URL e.g. `postgres://groot:groot@localhost:5432/groot`
+
+## Downloading
+```console
+$ curl -L https://github.com/fao89/groot/releases/download/0.3.0/groot-linux-amd64 -o groot
+$ chmod +x groot
+```
 ## Sync roles or collections
 
 Mirror:
-```
-$ curl -L https://github.com/fao89/groot/releases/download/0.2.1/groot-linux-amd64 -o groot
-$ chmod +x groot
+- Client-side:
+```console
 $ ./groot sync --content <roles | collections>
 ```
 
-From requirements.yml
+- Server-side:
+```console
+$ curl -X POST http://127.0.0.1:3030/sync/<roles | collections>
 ```
-$ curl -L https://github.com/fao89/groot/releases/download/0.2.1/groot-linux-amd64 -o groot
-$ chmod +x groot
+
+From requirements.yml
+- Client-side:
+```console
 $ ./groot sync --requirement requirements.yml
 ```
 
-## Serve content
+- Server-side:
+```console
+$ curl -X POST -F 'requirements=@requirements.yml' http://127.0.0.1:3030/sync/
 ```
-$ curl -L https://github.com/fao89/groot/releases/download/0.2.1/groot-linux-amd64 -o groot
+
+## Serving content
+```console
+$ curl -L https://github.com/fao89/groot/releases/download/0.3.0/groot-linux-amd64 -o groot
 $ chmod +x groot
-$ RUST_LOG=groot::api ./groot --serve
+$ ./groot --serve
 ```
 Install role/collection from groot:
-```
-$ ansible-galaxy <role/collection> install <namespace>.<name> -c -s http://127.0.0.1:3030/ --no-deps
+```console
+$ ansible-galaxy <role | collection> install <namespace>.<name> -c -s http://127.0.0.1:3030/
 ```
