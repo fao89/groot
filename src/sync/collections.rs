@@ -38,7 +38,7 @@ pub async fn sync_collections(response: &Value) -> Result<()> {
     // Downloading
     let collection_futures: Vec<_> = results
         .iter()
-        .map(|data| fetch_collection(&data, &conn))
+        .map(|data| fetch_collection(data, &conn))
         .collect();
     try_join_all(collection_futures)
         .await
@@ -92,7 +92,7 @@ async fn fetch_versions(
         // Downloading
         let collection_version_futures: Vec<_> = results
             .iter()
-            .map(|data| fetch_collection_version(&data))
+            .map(|data| fetch_collection_version(data))
             .collect();
         let downloaded = try_join_all(collection_version_futures)
             .await
@@ -199,7 +199,7 @@ fn fetch_dependencies(dependencies: Vec<String>) -> Pin<Box<dyn Future<Output = 
         // Downloading
         let to_fetch: Vec<_> = deps_json
             .iter()
-            .map(|data| fetch_collection(&data, &conn))
+            .map(|data| fetch_collection(data, &conn))
             .collect();
         try_join_all(to_fetch).await.unwrap();
     })

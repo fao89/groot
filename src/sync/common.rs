@@ -67,7 +67,7 @@ pub async fn process_requirements(root: &Url, requirements: String) -> Result<()
                 .collect();
             let content_futures: Vec<_> = content_paths
                 .iter()
-                .map(|data| get_json(&data.as_str()))
+                .map(|data| get_json(data.as_str()))
                 .collect();
             let responses: Vec<_> = try_join_all(content_futures).await?;
             if content == "roles" {

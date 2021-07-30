@@ -8,7 +8,7 @@ use url::Url;
 
 pub async fn sync_roles(response: &Value) -> Result<()> {
     let results = response.as_object().unwrap()["results"].as_array().unwrap();
-    let role_futures: Vec<_> = results.iter().map(|data| fetch_role(&data)).collect();
+    let role_futures: Vec<_> = results.iter().map(|data| fetch_role(data)).collect();
     try_join_all(role_futures)
         .await
         .context("Failed to join roles futures")?;
@@ -26,7 +26,7 @@ async fn fetch_role(data: &Value) -> Result<()> {
     tokio::fs::create_dir_all(&content_path)
         .await
         .with_context(|| format!("Failed to create dir {}", content_path))?;
-    fetch_versions(&data)
+    fetch_versions(data)
         .await
         .with_context(|| format!("Failed to fetch role versions from {}", data["commit_url"]))?;
     let dependencies: Vec<String> = data["summary_fields"]["dependencies"]
@@ -96,7 +96,7 @@ fn fetch_dependencies(dependencies: Vec<String>) -> Pin<Box<dyn Future<Output = 
     Box::pin(async move {
         let deps: Vec<_> = dependencies.iter().map(|x| get_json(x)).collect();
         let deps_json = try_join_all(deps).await.unwrap();
-        let to_fetch: Vec<_> = deps_json.iter().map(|data| sync_roles(&data)).collect();
+        let to_fetch: Vec<_> = deps_json.iter().map(|data| sync_roles(data)).collect();
         try_join_all(to_fetch).await.unwrap();
     })
 }
