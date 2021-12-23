@@ -71,7 +71,7 @@ pub async fn process_requirements(root: &Url, requirements: String) -> Result<()
                 .collect();
             let responses: Vec<_> = try_join_all(content_futures).await?;
             if content == "roles" {
-                let to_fetch: Vec<_> = responses.iter().map(|value| sync_roles(value)).collect();
+                let to_fetch: Vec<_> = responses.iter().map(sync_roles).collect();
                 try_join_all(to_fetch).await?;
             } else {
                 use crate::schema::collections::dsl::*;

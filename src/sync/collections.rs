@@ -90,10 +90,8 @@ async fn fetch_versions(
             .unwrap();
 
         // Downloading
-        let collection_version_futures: Vec<_> = results
-            .iter()
-            .map(|data| fetch_collection_version(data))
-            .collect();
+        let collection_version_futures: Vec<_> =
+            results.iter().map(fetch_collection_version).collect();
         let downloaded = try_join_all(collection_version_futures)
             .await
             .context("Failed to join collection versions futures")?;
