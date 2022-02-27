@@ -34,14 +34,14 @@ async fn fetch_role(data: &Value) -> Result<()> {
         .unwrap()
         .iter()
         .filter(|x| {
-            std::fs::metadata(format!("roles/{}", x.as_str().unwrap().replace(".", "/"))).is_err()
+            std::fs::metadata(format!("roles/{}", x.as_str().unwrap().replace('.', "/"))).is_err()
         })
         .map(|d| {
-            let dep_path = format!("roles/{}", d.as_str().unwrap().replace(".", "/"));
+            let dep_path = format!("roles/{}", d.as_str().unwrap().replace('.', "/"));
             std::fs::create_dir_all(&dep_path).unwrap();
             format!(
                 "https://galaxy.ansible.com/api/v1/roles/?namespace__name={}",
-                d.as_str().unwrap().replace(".", "&name=")
+                d.as_str().unwrap().replace('.', "&name=")
             )
         })
         .collect();

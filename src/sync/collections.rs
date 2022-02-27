@@ -158,11 +158,11 @@ async fn fetch_collection_version(data: &Value) -> Result<Value> {
         .as_object()
         .unwrap()
         .keys()
-        .filter(|x| std::fs::metadata(format!("collections/{}", x.replace(".", "/"))).is_err())
+        .filter(|x| std::fs::metadata(format!("collections/{}", x.replace('.', "/"))).is_err())
         .map(|d| {
-            let dep_path = format!("collections/{}", d.replace(".", "/"));
+            let dep_path = format!("collections/{}", d.replace('.', "/"));
             std::fs::create_dir_all(&dep_path).unwrap();
-            format!("{}{}/", root, d.replace(".", "/"))
+            format!("{}{}/", root, d.replace('.', "/"))
         })
         .collect();
     if !dependencies.is_empty() {

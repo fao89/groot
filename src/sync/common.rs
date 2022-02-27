@@ -43,7 +43,7 @@ pub async fn process_requirements(root: &Url, requirements: String) -> Result<()
                             .as_str()
                             .unwrap(),
                     };
-                    let path = format!("{}{}", url_path, content_name.replace(".", url_sep));
+                    let path = format!("{}{}", url_path, content_name.replace('.', url_sep));
                     if item.as_hash().is_some()
                         && item
                             .as_hash()
