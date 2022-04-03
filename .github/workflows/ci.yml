@@ -44,6 +44,7 @@ jobs:
         uses: actions-rs/cargo@v1
         with:
           command: build
+          args: --release --all-features
 
       - name: Test
         uses: actions-rs/cargo@v1
@@ -73,11 +74,12 @@ jobs:
             - community.postgresql
           EOF
       - name: Run
-        uses: actions-rs/cargo@v1
-        with:
-          command: run
-          args: -- sync --requirement requirements.yml
-
+        run: |
+          ./target/release/groot &
+          sleep 2
+          curl -X POST -F 'requirements=@requirements.yml' http://127.0.0.1:3030/sync/
+          sleep 5
+          ansible-galaxy collection install -vvv community.postgresql -c -s http://127.0.0.1:3030/
   macos:
     runs-on: macos-latest
     strategy:
@@ -98,6 +100,7 @@ jobs:
         uses: actions-rs/cargo@v1
         with:
           command: build
+          args: --release --all-features
 
       - name: Test
         uses: actions-rs/cargo@v1

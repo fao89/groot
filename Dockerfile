@@ -12,4 +12,4 @@ RUN apt-get -y update && \
     apt -y install ca-certificates libssl-dev libpq-dev
 
 COPY --from=build /target/release/groot /usr/local/bin
-CMD ["/usr/local/bin/groot", "--serve"]
+CMD ["/usr/local/bin/groot"]
