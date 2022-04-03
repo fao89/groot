@@ -4,17 +4,13 @@ use crate::models;
 use anyhow::{Context, Result};
 use diesel::prelude::*;
 use futures::future::try_join_all;
-use std::io::prelude::*;
 use url::Url;
 use yaml_rust::Yaml;
 use yaml_rust::YamlLoader;
 
-pub async fn process_requirements(root: &Url, requirements: String) -> Result<()> {
-    let mut req = std::fs::File::open(requirements).context("Failed to open requirements.yml")?;
-    let mut contents = String::new();
-    req.read_to_string(&mut contents)
-        .context("Failed to read requirements.yml")?;
-    let docs = YamlLoader::load_from_str(&contents).unwrap();
+pub async fn process_requirements(root: &Url, chunk: &actix_web::web::Bytes) -> Result<()> {
+    let contents = std::str::from_utf8(chunk).unwrap();
+    let docs = YamlLoader::load_from_str(contents).unwrap();
     let doc = &docs[0];
     for content in "collections roles".split(' ') {
         let url_path = match content {

@@ -1,4 +1,5 @@
 use crate::models;
+use crate::sync::{mirror_content, process_requirements};
 use actix_multipart::Multipart;
 use actix_web::{get, post, web, HttpResponse, Responder};
 use diesel::prelude::*;
@@ -10,7 +11,7 @@ use futures::{StreamExt, TryStreamExt};
 use semver::Version;
 use serde_json::json;
 use std::collections::HashMap;
-use std::io::Write;
+use url::Url;
 
 type DbPool = Pool<ConnectionManager<PgConnection>>;
 
@@ -24,42 +25,21 @@ async fn api_metadata() -> impl Responder {
 async fn start_sync(path: web::Path<String>) -> impl Responder {
     let content_type = path.into_inner();
     let resp = json!({ "syncing": content_type });
-    std::thread::spawn(|| {
-        std::process::Command::new("groot")
-            .arg("sync")
-            .arg("--content")
-            .arg(content_type)
-            .spawn()
-            .expect("start sync")
-    });
+    let root = Url::parse("https://galaxy.ansible.com/").unwrap();
+    actix_web::rt::spawn(async move { mirror_content(root, content_type.as_str()).await });
     HttpResponse::Ok().json(resp)
 }
 
 #[post("/sync/")]
 async fn start_req_sync(mut payload: Multipart) -> impl Responder {
     while let Ok(Some(mut field)) = payload.try_next().await {
-        let mut f = web::block(move || std::fs::File::create("requirements.yml"))
-            .await
-            .unwrap()
-            .unwrap();
         // Field in turn is stream of *Bytes* object
         while let Some(chunk) = field.next().await {
-            let data = chunk.unwrap();
-            // filesystem operations are blocking, we have to use thread pool
-            f = web::block(move || f.write_all(&data).map(|_| f))
-                .await
-                .unwrap()
-                .unwrap();
+            let root = Url::parse("https://galaxy.ansible.com/").unwrap();
+            actix_web::rt::spawn(async move { process_requirements(&root, &chunk.unwrap()).await });
         }
     }
-    std::thread::spawn(|| {
-        std::process::Command::new("groot")
-            .arg("sync")
-            .arg("--requirement")
-            .arg("requirements.yml")
-            .spawn()
-            .expect("start sync")
-    });
+
     let resp = json!({ "syncing": "requirements file" });
     HttpResponse::Ok().json(resp)
 }
