@@ -1,6 +1,6 @@
 use crate::models;
 use actix_multipart::Multipart;
-use actix_web::{get, post, web, Responder};
+use actix_web::{get, post, web, HttpResponse, Responder};
 use diesel::prelude::*;
 use diesel::{
     r2d2::{ConnectionManager, Pool},
@@ -17,11 +17,12 @@ type DbPool = Pool<ConnectionManager<PgConnection>>;
 #[get("/api/")]
 async fn api_metadata() -> impl Responder {
     let resp = json!({"current_version": "v1", "available_versions": {"v1": "v1/", "v2": "v2/"}});
-    web::HttpResponse::Ok().json(resp)
+    HttpResponse::Ok().json(resp)
 }
 
 #[post("/sync/{content_type}/")]
-async fn start_sync(web::Path(content_type): web::Path<String>) -> impl Responder {
+async fn start_sync(path: web::Path<String>) -> impl Responder {
+    let content_type = path.into_inner();
     let resp = json!({ "syncing": content_type });
     std::thread::spawn(|| {
         std::process::Command::new("groot")
@@ -31,7 +32,7 @@ async fn start_sync(web::Path(content_type): web::Path<String>) -> impl Responde
             .spawn()
             .expect("start sync")
     });
-    web::HttpResponse::Ok().json(resp)
+    HttpResponse::Ok().json(resp)
 }
 
 #[post("/sync/")]
@@ -39,6 +40,7 @@ async fn start_req_sync(mut payload: Multipart) -> impl Responder {
     while let Ok(Some(mut field)) = payload.try_next().await {
         let mut f = web::block(move || std::fs::File::create("requirements.yml"))
             .await
+            .unwrap()
             .unwrap();
         // Field in turn is stream of *Bytes* object
         while let Some(chunk) = field.next().await {
@@ -46,6 +48,7 @@ async fn start_req_sync(mut payload: Multipart) -> impl Responder {
             // filesystem operations are blocking, we have to use thread pool
             f = web::block(move || f.write_all(&data).map(|_| f))
                 .await
+                .unwrap()
                 .unwrap();
         }
     }
@@ -58,7 +61,7 @@ async fn start_req_sync(mut payload: Multipart) -> impl Responder {
             .expect("start sync")
     });
     let resp = json!({ "syncing": "requirements file" });
-    web::HttpResponse::Ok().json(resp)
+    HttpResponse::Ok().json(resp)
 }
 
 #[get("/api/v1/roles/")]
@@ -68,17 +71,16 @@ async fn role_retrieve(query: web::Query<HashMap<String, String>>) -> impl Respo
     let name = query.get("name").unwrap_or(&empty_string);
     if namespace.is_empty() || name.is_empty() {
         let msg = json!({"Please specify the following query params": ["owner__username", "name"]});
-        return web::HttpResponse::BadRequest().json(msg);
+        return HttpResponse::BadRequest().json(msg);
     }
     let resp = json!({ "id": format!("{}/{}", namespace, name) });
     let results = json!({ "results": [resp] });
-    web::HttpResponse::Ok().json(results)
+    HttpResponse::Ok().json(results)
 }
 
 #[get("/api/v1/roles/{namespace}/{name}/versions/")]
-async fn role_version_list(
-    web::Path((namespace, name)): web::Path<(String, String)>,
-) -> impl Responder {
+async fn role_version_list(path: web::Path<(String, String)>) -> impl Responder {
+    let (namespace, name) = path.into_inner();
     let config = crate::config::Config::from_env().unwrap();
     let path = format!("roles/{}/{}/versions", namespace, name);
     let mut refs = Vec::new();
@@ -98,17 +100,18 @@ async fn role_version_list(
         }
     }
     let data = json!({ "results": refs });
-    web::HttpResponse::Ok().json(data)
+    HttpResponse::Ok().json(data)
 }
 
 #[get("/api/v2/collections/{namespace}/{name}/")]
 async fn collection_retrieve(
     pool: web::Data<DbPool>,
-    web::Path((namespace, name)): web::Path<(String, String)>,
+    path: web::Path<(String, String)>,
 ) -> impl Responder {
     use crate::schema::*;
     let conn = pool.get().expect("couldn't get db connection from pool");
     let config = crate::config::Config::from_env().unwrap();
+    let (namespace, name) = path.into_inner();
     let results = collections::table
         .inner_join(collection_versions::table)
         .select((collections::id, (collection_versions::version)))
@@ -142,14 +145,13 @@ async fn collection_retrieve(
         "versions_url": versions_url,
         "latest_version":{"version": latest_version, "href": latest_href}
     });
-    web::HttpResponse::Ok().json(resp)
+    HttpResponse::Ok().json(resp)
 }
 
 #[get("/api/v2/collections/{namespace}/{name}/versions/")]
-async fn collection_version_list(
-    web::Path((namespace, name)): web::Path<(String, String)>,
-) -> impl Responder {
+async fn collection_version_list(path: web::Path<(String, String)>) -> impl Responder {
     let config = crate::config::Config::from_env().unwrap();
+    let (namespace, name) = path.into_inner();
     let path = format!("collections/{}/{}/versions", namespace, name);
     let mut refs = Vec::new();
     for entry in std::fs::read_dir(&path).unwrap() {
@@ -160,17 +162,18 @@ async fn collection_version_list(
         }))
     }
     let data = json!({ "results": refs });
-    web::HttpResponse::Ok().json(data)
+    HttpResponse::Ok().json(data)
 }
 
 #[get("/api/v2/collections/{namespace}/{name}/versions/{version}/")]
 async fn collection_version_retrieve(
     pool: web::Data<DbPool>,
-    web::Path((namespace, name, version)): web::Path<(String, String, String)>,
+    path: web::Path<(String, String, String)>,
 ) -> impl Responder {
     use crate::schema::*;
     let conn = pool.get().expect("couldn't get db connection from pool");
     let config = crate::config::Config::from_env().unwrap();
+    let (namespace, name, version) = path.into_inner();
     let result = collections::table
         .inner_join(collection_versions::table)
         .select(collection_versions::all_columns)
@@ -207,5 +210,5 @@ async fn collection_version_retrieve(
         "namespace": {"name": namespace},
         "version": version,
     });
-    web::HttpResponse::Ok().json(resp)
+    HttpResponse::Ok().json(resp)
 }
