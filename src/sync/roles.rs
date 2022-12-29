@@ -38,7 +38,7 @@ async fn fetch_role(data: &Value) -> Result<()> {
         })
         .map(|d| {
             let dep_path = format!("roles/{}", d.as_str().unwrap().replace('.', "/"));
-            std::fs::create_dir_all(&dep_path).unwrap();
+            std::fs::create_dir_all(dep_path).unwrap();
             format!(
                 "https://galaxy.ansible.com/api/v1/roles/?namespace__name={}",
                 d.as_str().unwrap().replace('.', "&name=")

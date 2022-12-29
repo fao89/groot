@@ -73,7 +73,7 @@ pub async fn process_requirements(root: &Url, chunk: &actix_web::web::Bytes) -> 
                 use crate::schema::collections::dsl::*;
                 let db_url = std::env::var("DATABASE_URL").expect("DATABASE_URL");
                 let pool = get_pool(&db_url);
-                let conn = pool.get().expect("couldn't get db connection from pool");
+                let mut conn = pool.get().expect("couldn't get db connection from pool");
 
                 let to_save: Vec<_> = responses
                     .iter()
@@ -87,13 +87,10 @@ pub async fn process_requirements(root: &Url, chunk: &actix_web::web::Bytes) -> 
                     .values(&to_save)
                     .on_conflict((namespace, name))
                     .do_nothing()
-                    .execute(&conn)
+                    .execute(&mut conn)
                     .unwrap();
                 // Downloading
-                let to_fetch: Vec<_> = responses
-                    .iter()
-                    .map(|value| fetch_collection(value, &conn))
-                    .collect();
+                let to_fetch: Vec<_> = responses.iter().map(fetch_collection).collect();
                 try_join_all(to_fetch).await?;
             };
         }

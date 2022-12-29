@@ -89,7 +89,7 @@ async fn collection_retrieve(
     path: web::Path<(String, String)>,
 ) -> impl Responder {
     use crate::schema::*;
-    let conn = pool.get().expect("couldn't get db connection from pool");
+    let mut conn = pool.get().expect("couldn't get db connection from pool");
     let config = crate::config::Config::from_env().unwrap();
     let (namespace, name) = path.into_inner();
     let results = collections::table
@@ -100,7 +100,7 @@ async fn collection_retrieve(
                 .eq(&namespace)
                 .and(collections::name.eq(&name)),
         )
-        .load::<(i32, String)>(&conn)
+        .load::<(i32, String)>(&mut conn)
         .unwrap();
     let (collection_id, latest_version) = results
         .iter()
@@ -151,7 +151,7 @@ async fn collection_version_retrieve(
     path: web::Path<(String, String, String)>,
 ) -> impl Responder {
     use crate::schema::*;
-    let conn = pool.get().expect("couldn't get db connection from pool");
+    let mut conn = pool.get().expect("couldn't get db connection from pool");
     let config = crate::config::Config::from_env().unwrap();
     let (namespace, name, version) = path.into_inner();
     let result = collections::table
@@ -163,7 +163,7 @@ async fn collection_version_retrieve(
                 .and(collections::name.eq(&name))
                 .and(collection_versions::version.eq(&version)),
         )
-        .load::<models::CollectionVersion>(&conn)
+        .load::<models::CollectionVersion>(&mut conn)
         .unwrap();
     let current_version = result.first().unwrap();
     let collection_href = format!(
