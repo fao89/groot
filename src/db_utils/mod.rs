@@ -1,12 +1,14 @@
+use crate::diesel_migrations::MigrationHarness;
 use diesel::{
     connection::Connection,
     r2d2::{ConnectionManager, Pool},
     PgConnection,
 };
+use diesel_migrations::EmbeddedMigrations;
 use std::time::Duration;
 
 pub fn run_migrations(db_url: &str) {
-    embed_migrations!();
+    pub const MIGRATIONS: EmbeddedMigrations = embed_migrations!();
     let mut connection = PgConnection::establish(db_url);
     for _ in 0..5 {
         if connection.is_err() {
@@ -17,7 +19,9 @@ pub fn run_migrations(db_url: &str) {
             break;
         }
     }
-    embedded_migrations::run_with_output(&connection.unwrap(), &mut std::io::stdout())
+    let _ = &mut connection
+        .unwrap()
+        .run_pending_migrations(MIGRATIONS)
         .expect("Error running migrations");
 }
 
