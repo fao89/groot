@@ -57,7 +57,7 @@ pub async fn fetch_collection(data: &Value) -> Result<()> {
     let mut conn = get_connection();
     tokio::fs::create_dir_all(&content_path)
         .await
-        .with_context(|| format!("Failed to create dir {}", content_path))?;
+        .with_context(|| format!("Failed to create dir {content_path}"))?;
 
     use crate::schema::collections::dsl::*;
     let collection = collections
@@ -142,15 +142,15 @@ async fn fetch_collection_version(data: &Value) -> Result<Value> {
     );
     tokio::fs::create_dir_all(&version_path)
         .await
-        .with_context(|| format!("Failed to create dir {}", version_path))?;
+        .with_context(|| format!("Failed to create dir {version_path}"))?;
 
     let download_url = Url::parse(json_response["download_url"].as_str().unwrap())
         .with_context(|| format!("Failed to parse URL {}", json_response["download_url"]))?;
     let response = get_with_retry(download_url.as_str()).await?;
     let filename = download_url.path_segments().unwrap().last().unwrap();
-    download_tar(format!("{}{}", version_path, filename).as_str(), response)
+    download_tar(format!("{version_path}{filename}").as_str(), response)
         .await
-        .with_context(|| format!("Failed to download {}", download_url))?;
+        .with_context(|| format!("Failed to download {download_url}"))?;
     let root = json_response["collection"]["href"]
         .as_str()
         .unwrap()

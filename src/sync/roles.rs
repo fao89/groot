@@ -25,7 +25,7 @@ async fn fetch_role(data: &Value) -> Result<()> {
     );
     tokio::fs::create_dir_all(&content_path)
         .await
-        .with_context(|| format!("Failed to create dir {}", content_path))?;
+        .with_context(|| format!("Failed to create dir {content_path}"))?;
     fetch_versions(data)
         .await
         .with_context(|| format!("Failed to fetch role versions from {}", data["commit_url"]))?;
@@ -73,7 +73,7 @@ async fn fetch_role_version(data: &Value, version: &Value) -> Result<()> {
     );
     tokio::fs::create_dir_all(&version_path)
         .await
-        .with_context(|| format!("Failed to create dir {}", version_path))?;
+        .with_context(|| format!("Failed to create dir {version_path}"))?;
     let github_url = format!(
         "https://github.com/{}/{}/archive/{}.tar.gz",
         data["github_user"].as_str().unwrap(),
@@ -81,12 +81,12 @@ async fn fetch_role_version(data: &Value, version: &Value) -> Result<()> {
         version.as_str().unwrap()
     );
     let download_url = Url::parse(github_url.as_str())
-        .with_context(|| format!("Failed to parse url {}", github_url))?;
+        .with_context(|| format!("Failed to parse url {github_url}"))?;
     let response = reqwest::get(download_url.as_str())
         .await
-        .with_context(|| format!("Failed to download {}", download_url))?;
+        .with_context(|| format!("Failed to download {download_url}"))?;
     let filename = download_url.path_segments().unwrap().last().unwrap();
-    download_tar(format!("{}{}", version_path, filename).as_str(), response)
+    download_tar(format!("{version_path}{filename}").as_str(), response)
         .await
         .unwrap();
     Ok(())

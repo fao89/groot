@@ -53,7 +53,7 @@ async fn role_retrieve(query: web::Query<HashMap<String, String>>) -> impl Respo
         let msg = json!({"Please specify the following query params": ["owner__username", "name"]});
         return HttpResponse::BadRequest().json(msg);
     }
-    let resp = json!({ "id": format!("{}/{}", namespace, name) });
+    let resp = json!({ "id": format!("{namespace}/{name}") });
     let results = json!({ "results": [resp] });
     HttpResponse::Ok().json(results)
 }
@@ -62,7 +62,7 @@ async fn role_retrieve(query: web::Query<HashMap<String, String>>) -> impl Respo
 async fn role_version_list(path: web::Path<(String, String)>) -> impl Responder {
     let (namespace, name) = path.into_inner();
     let config = crate::config::Config::from_env().unwrap();
-    let path = format!("roles/{}/{}/versions", namespace, name);
+    let path = format!("roles/{namespace}/{name}/versions");
     let mut refs = Vec::new();
     for entry in std::fs::read_dir(&path).unwrap() {
         let version_number = entry.unwrap().file_name().into_string().unwrap();
@@ -115,8 +115,8 @@ async fn collection_retrieve(
         "http://{}:{}/api/v2/collections/{}/{}/",
         config.server.host, config.server.port, namespace, name
     );
-    let versions_url = format!("{}versions/", href);
-    let latest_href = format!("{}{}/", versions_url, latest_version);
+    let versions_url = format!("{href}versions/");
+    let latest_href = format!("{versions_url}{latest_version}/");
     let resp = json!({
         "href": href,
         "id": collection_id,
@@ -132,7 +132,7 @@ async fn collection_retrieve(
 async fn collection_version_list(path: web::Path<(String, String)>) -> impl Responder {
     let config = crate::config::Config::from_env().unwrap();
     let (namespace, name) = path.into_inner();
-    let path = format!("collections/{}/{}/versions", namespace, name);
+    let path = format!("collections/{namespace}/{name}/versions");
     let mut refs = Vec::new();
     for entry in std::fs::read_dir(&path).unwrap() {
         let version_number = entry.unwrap().file_name().into_string().unwrap();
@@ -170,7 +170,7 @@ async fn collection_version_retrieve(
         "http://{}:{}/api/v2/collections/{}/{}/",
         config.server.host, config.server.port, namespace, name
     );
-    let version_url = format!("{}versions/{}/", collection_href, version);
+    let version_url = format!("{collection_href}versions/{version}/");
     let download_url = format!(
         "http://{}:{}/collections/{}/{}/versions/{}/{}",
         config.server.host,
