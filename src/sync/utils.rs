@@ -6,7 +6,7 @@ use tokio::io::AsyncWriteExt;
 use tokio::time;
 
 pub async fn download_tar(filename: &str, response: reqwest::Response) -> Result<()> {
-    println!("Downloading {} ...", filename);
+    println!("Downloading {filename} ...");
 
     let mut file = match File::create(filename).await {
         Err(why) => panic!("couldn't create {}", why),
@@ -34,17 +34,17 @@ pub async fn get_with_retry(url: &str) -> Result<reqwest::Response> {
                 time::sleep(Duration::from_secs(retry_time)).await;
                 resp = reqwest::get(url)
                     .await
-                    .with_context(|| format!("Failed to get {}", url))?;
+                    .with_context(|| format!("Failed to get {url}"))?;
                 retry_time += 20;
             }
             resp
         }
         Err(e) => {
-            eprintln!("\nERROR - {} - Retrying...\n", e);
+            eprintln!("\nERROR - {e} - Retrying...\n");
             time::sleep(Duration::from_secs(120)).await;
             reqwest::get(url)
                 .await
-                .with_context(|| format!("Failed to get {}", url))?
+                .with_context(|| format!("Failed to get {url}"))?
         }
     };
     Ok(response)
@@ -55,6 +55,6 @@ pub async fn get_json(url: &str) -> Result<Value> {
     let values = response
         .json::<Value>()
         .await
-        .context(format!("Failed to parse JSON from {}", url))?;
+        .context(format!("Failed to parse JSON from {url}"))?;
     Ok(values)
 }
