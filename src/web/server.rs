@@ -10,8 +10,9 @@ use dotenv::dotenv;
 pub async fn start_actix_server() {
     std::env::set_var("RUST_LOG", "actix_web=info");
     pretty_env_logger::init();
-    let db_url = std::env::var("DATABASE_URL").expect("DATABASE_URL");
-    let pool = get_pool(&db_url);
+    let db_url = dotenv::var("DATABASE_URL").expect("DATABASE_URL");
+    let pool: diesel::r2d2::Pool<diesel::r2d2::ConnectionManager<diesel::PgConnection>> =
+        get_pool(&db_url);
 
     std::fs::create_dir_all("collections").unwrap();
     std::fs::create_dir_all("roles").unwrap();

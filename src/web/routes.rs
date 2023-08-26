@@ -25,7 +25,8 @@ async fn api_metadata() -> impl Responder {
 async fn start_sync(path: web::Path<String>) -> impl Responder {
     let content_type = path.into_inner();
     let resp = json!({ "syncing": content_type });
-    let root = Url::parse("https://galaxy.ansible.com/").unwrap();
+    let galaxy_url = dotenv::var("GALAXY_URL").unwrap_or("https://galaxy.ansible.com/".to_string());
+    let root = Url::parse(galaxy_url.as_str()).unwrap();
     actix_web::rt::spawn(async move { mirror_content(root, content_type.as_str()).await });
     HttpResponse::Ok().json(resp)
 }
@@ -35,7 +36,9 @@ async fn start_req_sync(mut payload: Multipart) -> impl Responder {
     while let Ok(Some(mut field)) = payload.try_next().await {
         // Field in turn is stream of *Bytes* object
         while let Some(chunk) = field.next().await {
-            let root = Url::parse("https://galaxy.ansible.com/").unwrap();
+            let galaxy_url =
+                dotenv::var("GALAXY_URL").unwrap_or("https://galaxy.ansible.com/".to_string());
+            let root = Url::parse(galaxy_url.as_str()).unwrap();
             actix_web::rt::spawn(async move { process_requirements(&root, &chunk.unwrap()).await });
         }
     }

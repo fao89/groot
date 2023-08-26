@@ -14,7 +14,7 @@ type CurrentPool =
     diesel::r2d2::PooledConnection<diesel::r2d2::ConnectionManager<diesel::PgConnection>>;
 
 fn get_connection() -> PooledConnection<ConnectionManager<PgConnection>> {
-    let db_url = std::env::var("DATABASE_URL").expect("DATABASE_URL");
+    let db_url = dotenv::var("DATABASE_URL").expect("DATABASE_URL");
     let pool = get_pool(&db_url);
     pool.get().expect("couldn't get db connection from pool")
 }

@@ -71,7 +71,7 @@ pub async fn process_requirements(root: &Url, chunk: &actix_web::web::Bytes) -> 
                 try_join_all(to_fetch).await?;
             } else {
                 use crate::schema::collections::dsl::*;
-                let db_url = std::env::var("DATABASE_URL").expect("DATABASE_URL");
+                let db_url = dotenv::var("DATABASE_URL").expect("DATABASE_URL");
                 let pool = get_pool(&db_url);
                 let mut conn = pool.get().expect("couldn't get db connection from pool");
 
