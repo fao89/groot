@@ -106,3 +106,22 @@ jobs:
         uses: actions-rs/cargo@v1
         with:
           command: test
+  image:
+    runs-on: ubuntu-latest
+    needs: [ubuntu, macos]
+    steps:
+      - uses: actions/checkout@v3
+      - name: Build image
+        run: |
+          podman version
+          buildah version
+          podman build --format docker --file Dockerfile --tag quay.io/fabricio_aguiar/groot:latest .
+      - name: Quay login
+        if: github.event_name != 'pull_request'
+        env:
+          QUAY_BOT_PASSWORD: ${{ secrets.QUAY_BOT_PASSWORD }}
+          QUAY_BOT_USERNAME: ${{ secrets.QUAY_BOT_USERNAME }}
+        run: echo "$QUAY_BOT_PASSWORD" | podman login -u "$QUAY_BOT_USERNAME" --password-stdin quay.io
+      - name: Push ci image to quay
+        run: |
+          podman push quay.io/fabricio_aguiar/groot:latest
