@@ -30,13 +30,24 @@ async fn api_metadata() -> impl Responder {
 
 #[api_v2_operation]
 #[get("/api/status/")]
-async fn api_status(pool: web::Data<DbPool>) -> impl Responder {
+async fn api_status(
+    pool: web::Data<DbPool>,
+    redis_pool: web::Data<Pool<RedisConnectionManager>>,
+) -> impl Responder {
     pool.get().expect("couldn't get db connection from pool");
+    redis_pool
+        .get()
+        .expect("couldn't get redis connection from pool");
     let state = pool.state();
+    let redis_state = redis_pool.state();
     let resp = json!({
-        "pool": {
+        "db": {
             "connections": state.connections,
             "idle_connections": state.idle_connections
+        },
+        "redis": {
+            "connections": redis_state.connections,
+            "idle_connections": redis_state.idle_connections
         },
         "status": "ok"
     });
