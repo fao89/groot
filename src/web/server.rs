@@ -39,6 +39,7 @@ pub async fn start_actix_server() {
             .service(collection_version_retrieve)
             .service(collection_version_list)
             .service(api_metadata)
+            .service(api_status)
             .service(start_sync)
             .with_json_spec_at("/api/spec/v2/")
             .build()

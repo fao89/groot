@@ -24,6 +24,21 @@ async fn api_metadata() -> impl Responder {
 }
 
 #[api_v2_operation]
+#[get("/api/status/")]
+async fn api_status(pool: web::Data<DbPool>) -> impl Responder {
+    pool.get().expect("couldn't get db connection from pool");
+    let state = pool.state();
+    let resp = json!({
+        "pool": {
+            "connections": state.connections,
+            "idle_connections": state.idle_connections
+        },
+        "status": "ok"
+    });
+    HttpResponse::Ok().json(resp)
+}
+
+#[api_v2_operation]
 #[post("/sync/{content_type}/")]
 async fn start_sync(path: web::Path<String>) -> impl Responder {
     let content_type = path.into_inner();
@@ -110,7 +125,6 @@ async fn list_v2() -> impl Responder {
 async fn collection_list(pool: web::Data<DbPool>) -> impl Responder {
     use crate::schema::*;
     let mut conn = pool.get().expect("couldn't get db connection from pool");
-    // let config = crate::config::Config::from_env().unwrap();
     let results = collections::table
         .select(Collection::as_select())
         .load(&mut conn)
