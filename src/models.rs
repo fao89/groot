@@ -2,7 +2,7 @@ use crate::schema::*;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
-#[derive(Debug, Serialize, Deserialize, Queryable, Identifiable)]
+#[derive(Debug, Serialize, Deserialize, Queryable, Selectable, Identifiable)]
 #[diesel(table_name = collections)]
 pub struct Collection {
     pub id: i32,
@@ -16,7 +16,7 @@ pub struct CollectionNew<'a> {
     pub name: &'a str,
 }
 
-#[derive(Debug, Serialize, Deserialize, Queryable, Identifiable, Associations)]
+#[derive(Debug, Serialize, Deserialize, Queryable, Selectable, Identifiable, Associations)]
 #[diesel(belongs_to(Collection))]
 #[diesel(table_name = collection_versions)]
 pub struct CollectionVersion {

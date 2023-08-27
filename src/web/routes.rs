@@ -1,4 +1,4 @@
-use crate::models;
+use crate::models::{self, Collection};
 use crate::sync::{mirror_content, process_requirements};
 use actix_multipart::Multipart;
 use actix_web::{HttpResponse, Responder};
@@ -51,6 +51,13 @@ async fn start_req_sync(mut payload: Multipart) -> impl Responder {
 }
 
 #[api_v2_operation]
+#[get("/api/v1/")]
+async fn list_v1() -> impl Responder {
+    let resp = json!({ "roles": "/api/v1/roles/" });
+    HttpResponse::Ok().json(resp)
+}
+
+#[api_v2_operation]
 #[get("/api/v1/roles/")]
 async fn role_retrieve(query: web::Query<HashMap<String, String>>) -> impl Responder {
     let empty_string = String::from("");
@@ -89,6 +96,31 @@ async fn role_version_list(path: web::Path<(String, String)>) -> impl Responder 
     }
     let data = json!({ "results": refs });
     HttpResponse::Ok().json(data)
+}
+
+#[api_v2_operation]
+#[get("/api/v2/")]
+async fn list_v2() -> impl Responder {
+    let resp = json!({ "collections": "/api/v2/collections/" });
+    HttpResponse::Ok().json(resp)
+}
+
+#[api_v2_operation]
+#[get("/api/v2/collections/")]
+async fn collection_list(pool: web::Data<DbPool>) -> impl Responder {
+    use crate::schema::*;
+    let mut conn = pool.get().expect("couldn't get db connection from pool");
+    // let config = crate::config::Config::from_env().unwrap();
+    let results = collections::table
+        .select(Collection::as_select())
+        .load(&mut conn)
+        .unwrap();
+
+    let resp = json!({
+        "count": results.len(),
+        "results": results,
+    });
+    HttpResponse::Ok().json(resp)
 }
 
 #[api_v2_operation]
