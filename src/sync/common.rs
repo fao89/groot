@@ -1,9 +1,16 @@
 use super::{fetch_collection, get_json, sync_collections, sync_roles};
-use crate::db_utils::get_pool;
+use crate::db_utils::get_db_connection;
 use crate::models;
+use actix_multipart::Multipart;
 use anyhow::{Context, Result};
 use diesel::prelude::*;
+use diesel::r2d2::PooledConnection;
 use futures::future::try_join_all;
+use futures::TryStreamExt;
+use r2d2_redis::redis::Commands;
+use r2d2_redis::RedisConnectionManager;
+use tokio::fs::File;
+use tokio::io::AsyncWriteExt;
 use url::Url;
 use yaml_rust::Yaml;
 use yaml_rust::YamlLoader;
@@ -71,9 +78,7 @@ pub async fn process_requirements(root: &Url, chunk: &actix_web::web::Bytes) -> 
                 try_join_all(to_fetch).await?;
             } else {
                 use crate::schema::collections::dsl::*;
-                let db_url = dotenv::var("DATABASE_URL").expect("DATABASE_URL");
-                let pool = get_pool(&db_url);
-                let mut conn = pool.get().expect("couldn't get db connection from pool");
+                let mut conn = get_db_connection();
 
                 let to_save: Vec<_> = responses
                     .iter()
@@ -125,5 +130,35 @@ pub async fn mirror_content(root: Url, content_type: &str) -> Result<()> {
             .join(results.as_object().unwrap()["next_link"].as_str().unwrap())
             .context("Failed to join next_link")?
     }
+    Ok(())
+}
+
+pub async fn import_task(
+    task_uuid: &str,
+    mut conn: PooledConnection<RedisConnectionManager>,
+    mut multipart: Multipart,
+) -> Result<()> {
+    while let Ok(Some(mut field)) = multipart.try_next().await {
+        // A multipart/form-data stream has to contain `content_disposition`
+        let content_disposition = field.content_disposition();
+        if content_disposition.get_filename().is_none() {
+            continue;
+        }
+        let filename = content_disposition.get_filename().unwrap();
+        if field.content_type().is_none() {
+            continue;
+        }
+
+        let mut file = File::create(filename).await.unwrap();
+
+        // Field in turn is stream of *Bytes* object
+        while let Ok(Some(chunk)) = field.try_next().await {
+            file.write_all(&chunk).await.unwrap();
+        }
+    }
+
+    conn.set::<&str, &str, bool>(task_uuid, "completed")
+        .expect("Error setting key");
+
     Ok(())
 }

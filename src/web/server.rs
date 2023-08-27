@@ -1,5 +1,5 @@
 use super::routes::*;
-use crate::db_utils::get_pool;
+use crate::db_utils::{get_db_pool, get_redis_pool};
 use actix_web::{
     middleware::{Logger, NormalizePath, TrailingSlash},
     web::Data,
@@ -13,7 +13,9 @@ pub async fn start_actix_server() {
     pretty_env_logger::init();
     let db_url = dotenv::var("DATABASE_URL").expect("DATABASE_URL");
     let pool: diesel::r2d2::Pool<diesel::r2d2::ConnectionManager<diesel::PgConnection>> =
-        get_pool(&db_url);
+        get_db_pool(&db_url);
+    let redis_url = dotenv::var("REDIS_URL").expect("REDIS_URL");
+    let redis_pool = get_redis_pool(&redis_url);
 
     std::fs::create_dir_all("collections").unwrap();
     std::fs::create_dir_all("roles").unwrap();
@@ -27,6 +29,7 @@ pub async fn start_actix_server() {
     HttpServer::new(move || {
         App::new()
             .app_data(Data::new(pool.clone()))
+            .app_data(Data::new(redis_pool.clone()))
             .wrap_api()
             .wrap(NormalizePath::new(TrailingSlash::Always))
             .wrap(Logger::default())
@@ -44,6 +47,8 @@ pub async fn start_actix_server() {
             .with_json_spec_at("/api/spec/v2/")
             .build()
             .service(start_req_sync)
+            .service(collection_post)
+            .service(collection_import)
             .service(actix_files::Files::new("/collections", "collections"))
             .service(actix_files::Files::new("/roles", "roles"))
     })

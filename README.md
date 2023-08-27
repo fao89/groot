@@ -10,6 +10,7 @@ Please have a `.env` file with the following variables:
 - `SERVER.HOST`: The host address e.g. `127.0.0.1`
 - `SERVER.PORT`: The host port e.g. `3030`
 - `DATABASE_URL`: The postgres DB URL e.g. `postgres://groot:groot@localhost:5432/groot`
+- `REDIS_URL`: The redis URL e.g. `redis://redis:6379`
 
 ## Downloading
 ```console

@@ -1,5 +1,10 @@
 version: "3.4"
 services:
+  redis:
+    image: redis:alpine3.18
+    restart: always
+    ports:
+      - 6379:6379
   postgres:
     image: postgres:alpine3.18
     restart: always
@@ -26,10 +31,13 @@ services:
     depends_on:
       postgres:
         condition: service_started
+      redis:
+        condition: service_started
     environment:
       SERVER.HOST: 0.0.0.0
       SERVER.PORT: 3030
       DATABASE_URL: postgres://groot:groot@postgres:5432/groot
+      REDIS_URL: redis://redis:6379
     deploy:
       resources:
         limits:

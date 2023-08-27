@@ -1,9 +1,8 @@
 use super::{download_tar, get_json, get_with_retry};
-use crate::db_utils::get_pool;
+use crate::db_utils::get_db_connection;
 use crate::models;
 use anyhow::{Context, Result};
 use diesel::prelude::*;
-use diesel::r2d2::{ConnectionManager, PooledConnection};
 use futures::future::try_join_all;
 use serde_json::Value;
 use std::future::Future;
@@ -13,17 +12,11 @@ use url::Url;
 type CurrentPool =
     diesel::r2d2::PooledConnection<diesel::r2d2::ConnectionManager<diesel::PgConnection>>;
 
-fn get_connection() -> PooledConnection<ConnectionManager<PgConnection>> {
-    let db_url = dotenv::var("DATABASE_URL").expect("DATABASE_URL");
-    let pool = get_pool(&db_url);
-    pool.get().expect("couldn't get db connection from pool")
-}
-
 pub async fn sync_collections(response: &Value) -> Result<()> {
     let results = response.as_object().unwrap()["results"].as_array().unwrap();
 
     use crate::schema::collections::dsl::*;
-    let mut conn = get_connection();
+    let mut conn = get_db_connection();
 
     let to_save: Vec<_> = results
         .iter()
@@ -54,7 +47,7 @@ pub async fn fetch_collection(data: &Value) -> Result<()> {
         data["namespace"]["name"].as_str().unwrap(),
         data["name"].as_str().unwrap(),
     );
-    let mut conn = get_connection();
+    let mut conn = get_db_connection();
     tokio::fs::create_dir_all(&content_path)
         .await
         .with_context(|| format!("Failed to create dir {content_path}"))?;
@@ -178,7 +171,7 @@ fn fetch_dependencies(dependencies: Vec<String>) -> Pin<Box<dyn Future<Output = 
         let deps: Vec<_> = dependencies.iter().map(|x| get_json(x)).collect();
         let deps_json = try_join_all(deps).await.unwrap();
         use crate::schema::collections::dsl::*;
-        let mut conn = get_connection();
+        let mut conn = get_db_connection();
 
         let to_save: Vec<_> = deps_json
             .iter()

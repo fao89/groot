@@ -1,5 +1,5 @@
 use crate::models::{self, Collection};
-use crate::sync::{mirror_content, process_requirements};
+use crate::sync::{import_task, mirror_content, process_requirements};
 use actix_multipart::Multipart;
 use actix_web::{HttpResponse, Responder};
 use diesel::prelude::*;
@@ -9,10 +9,15 @@ use diesel::{
 };
 use futures::{StreamExt, TryStreamExt};
 use paperclip::actix::{api_v2_operation, get, post, web};
+use r2d2_redis::redis::{Commands, FromRedisValue};
+use r2d2_redis::RedisConnectionManager;
 use semver::Version;
 use serde_json::json;
 use std::collections::HashMap;
+use std::time::Duration;
+use tokio::time;
 use url::Url;
+use uuid::Uuid;
 
 type DbPool = Pool<ConnectionManager<PgConnection>>;
 
@@ -134,6 +139,39 @@ async fn collection_list(pool: web::Data<DbPool>) -> impl Responder {
         "count": results.len(),
         "results": results,
     });
+    HttpResponse::Ok().json(resp)
+}
+
+#[actix_web::post("/api/v2/collections/")]
+async fn collection_post(
+    pool: web::Data<Pool<RedisConnectionManager>>,
+    payload: Multipart,
+) -> impl Responder {
+    let mut conn = pool
+        .get_timeout(Duration::from_secs(1))
+        .expect("couldn't get redis connection from pool");
+    let task_uuid = Uuid::new_v4().to_string();
+    conn.set::<&str, &str, bool>(task_uuid.as_str(), "waiting")
+        .expect("Error setting key");
+    let resp = json!({ "task": task_uuid });
+    actix_web::rt::spawn(async move { import_task(task_uuid.as_str(), conn, payload).await });
+    time::sleep(Duration::from_secs(1)).await;
+
+    HttpResponse::Ok().json(resp)
+}
+
+#[actix_web::get("/api/v2/collection-imports/{task_id}/")]
+async fn collection_import(
+    pool: web::Data<Pool<RedisConnectionManager>>,
+    path: web::Path<String>,
+) -> impl Responder {
+    let mut conn = pool
+        .get_timeout(Duration::from_secs(1))
+        .expect("couldn't get redis connection from pool");
+    let task_id = path.into_inner();
+    let value = conn.get(task_id.as_str()).expect("Error getting key");
+    let state: String = FromRedisValue::from_redis_value(&value).expect("Error getting value");
+    let resp = json!({"state": state, "finished_at": "now"});
     HttpResponse::Ok().json(resp)
 }
 
