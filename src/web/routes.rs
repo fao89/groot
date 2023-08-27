@@ -1,13 +1,14 @@
 use crate::models;
 use crate::sync::{mirror_content, process_requirements};
 use actix_multipart::Multipart;
-use actix_web::{get, post, web, HttpResponse, Responder};
+use actix_web::{HttpResponse, Responder};
 use diesel::prelude::*;
 use diesel::{
     r2d2::{ConnectionManager, Pool},
     PgConnection,
 };
 use futures::{StreamExt, TryStreamExt};
+use paperclip::actix::{api_v2_operation, get, post, web};
 use semver::Version;
 use serde_json::json;
 use std::collections::HashMap;
@@ -15,12 +16,14 @@ use url::Url;
 
 type DbPool = Pool<ConnectionManager<PgConnection>>;
 
+#[api_v2_operation]
 #[get("/api/")]
 async fn api_metadata() -> impl Responder {
     let resp = json!({"current_version": "v1", "available_versions": {"v1": "v1/", "v2": "v2/"}});
     HttpResponse::Ok().json(resp)
 }
 
+#[api_v2_operation]
 #[post("/sync/{content_type}/")]
 async fn start_sync(path: web::Path<String>) -> impl Responder {
     let content_type = path.into_inner();
@@ -31,7 +34,7 @@ async fn start_sync(path: web::Path<String>) -> impl Responder {
     HttpResponse::Ok().json(resp)
 }
 
-#[post("/sync/")]
+#[actix_web::post("/sync/")]
 async fn start_req_sync(mut payload: Multipart) -> impl Responder {
     while let Ok(Some(mut field)) = payload.try_next().await {
         // Field in turn is stream of *Bytes* object
@@ -47,6 +50,7 @@ async fn start_req_sync(mut payload: Multipart) -> impl Responder {
     HttpResponse::Ok().json(resp)
 }
 
+#[api_v2_operation]
 #[get("/api/v1/roles/")]
 async fn role_retrieve(query: web::Query<HashMap<String, String>>) -> impl Responder {
     let empty_string = String::from("");
@@ -61,6 +65,7 @@ async fn role_retrieve(query: web::Query<HashMap<String, String>>) -> impl Respo
     HttpResponse::Ok().json(results)
 }
 
+#[api_v2_operation]
 #[get("/api/v1/roles/{namespace}/{name}/versions/")]
 async fn role_version_list(path: web::Path<(String, String)>) -> impl Responder {
     let (namespace, name) = path.into_inner();
@@ -86,6 +91,7 @@ async fn role_version_list(path: web::Path<(String, String)>) -> impl Responder 
     HttpResponse::Ok().json(data)
 }
 
+#[api_v2_operation]
 #[get("/api/v2/collections/{namespace}/{name}/")]
 async fn collection_retrieve(
     pool: web::Data<DbPool>,
@@ -131,6 +137,7 @@ async fn collection_retrieve(
     HttpResponse::Ok().json(resp)
 }
 
+#[api_v2_operation]
 #[get("/api/v2/collections/{namespace}/{name}/versions/")]
 async fn collection_version_list(path: web::Path<(String, String)>) -> impl Responder {
     let config = crate::config::Config::from_env().unwrap();
@@ -148,6 +155,7 @@ async fn collection_version_list(path: web::Path<(String, String)>) -> impl Resp
     HttpResponse::Ok().json(data)
 }
 
+#[api_v2_operation]
 #[get("/api/v2/collections/{namespace}/{name}/versions/{version}/")]
 async fn collection_version_retrieve(
     pool: web::Data<DbPool>,

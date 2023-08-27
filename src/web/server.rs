@@ -6,6 +6,7 @@ use actix_web::{
     App, HttpServer,
 };
 use dotenv::dotenv;
+use paperclip::actix::OpenApiExt;
 
 pub async fn start_actix_server() {
     std::env::set_var("RUST_LOG", "actix_web=info");
@@ -26,16 +27,19 @@ pub async fn start_actix_server() {
     HttpServer::new(move || {
         App::new()
             .app_data(Data::new(pool.clone()))
+            .wrap_api()
             .wrap(NormalizePath::new(TrailingSlash::Always))
             .wrap(Logger::default())
-            .service(api_metadata)
-            .service(start_sync)
-            .service(start_req_sync)
             .service(role_retrieve)
             .service(role_version_list)
             .service(collection_retrieve)
             .service(collection_version_retrieve)
             .service(collection_version_list)
+            .service(api_metadata)
+            .service(start_sync)
+            .with_json_spec_at("/api/spec/v2/")
+            .build()
+            .service(start_req_sync)
             .service(actix_files::Files::new("/collections", "collections"))
             .service(actix_files::Files::new("/roles", "roles"))
     })
