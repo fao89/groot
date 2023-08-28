@@ -148,8 +148,19 @@ pub async fn import_task(
         if field.content_type().is_none() {
             continue;
         }
+        let parts = filename.split("-").collect::<Vec<&str>>();
+        if parts.len() != 3 {
+            panic!("Collection name should follow the pattern: <namespace>-<name>-<version>.tar.gz")
+        }
+        let (namespace, name, version) = (parts[0], parts[1], parts[2].replace(".tar.gz", ""));
+        let file_path = format!("collections/{}/{}/versions/{}/", namespace, name, version);
+        tokio::fs::create_dir_all(&file_path)
+            .await
+            .with_context(|| format!("Failed to create dir {file_path}"))?;
 
-        let mut file = File::create(filename).await.unwrap();
+        let mut file = File::create(format!("{}/{}", file_path, filename))
+            .await
+            .unwrap();
 
         // Field in turn is stream of *Bytes* object
         while let Ok(Some(chunk)) = field.try_next().await {
