@@ -1,7 +1,7 @@
 use super::{a2b_base64, fetch_collection, get_json, sync_collections, sync_roles};
 use crate::db_utils::get_db_connection;
 use crate::models;
-use actix_multipart::Multipart;
+use actix_multipart::Field;
 use anyhow::{Context, Result};
 use diesel::prelude::*;
 use diesel::r2d2::PooledConnection;
@@ -136,48 +136,34 @@ pub async fn mirror_content(root: Url, content_type: &str) -> Result<()> {
 pub async fn import_task(
     task_uuid: &str,
     mut conn: PooledConnection<RedisConnectionManager>,
-    mut multipart: Multipart,
+    mut field: Field,
 ) -> Result<()> {
-    while let Ok(Some(mut field)) = multipart.try_next().await {
-        // A multipart/form-data stream has to contain `content_disposition`
-        let content_disposition = field.content_disposition();
-        if content_disposition.get_filename().is_none() {
-            continue;
-        }
-        let filename = content_disposition.get_filename().unwrap();
-        if field.content_type().is_none() {
-            continue;
-        }
-        let parts = filename.split('-').collect::<Vec<&str>>();
-        if parts.len() != 3 {
-            panic!("Collection name should follow the pattern: <namespace>-<name>-<version>.tar.gz")
-        }
-        let (namespace, name, version) = (parts[0], parts[1], parts[2].replace(".tar.gz", ""));
-        let file_path = format!("collections/{}/{}/versions/{}/", namespace, name, version);
-        tokio::fs::create_dir_all(&file_path)
-            .await
-            .with_context(|| format!("Failed to create dir {file_path}"))?;
+    let filename = field.content_disposition().get_filename().unwrap();
+    let parts = filename.split('-').collect::<Vec<&str>>();
+    let (namespace, name, version) = (parts[0], parts[1], parts[2].replace(".tar.gz", ""));
+    let file_path = format!("collections/{}/{}/versions/{}/", namespace, name, version);
+    tokio::fs::create_dir_all(&file_path)
+        .await
+        .with_context(|| format!("Failed to create dir {file_path}"))?;
 
-        let mut file = File::create(format!("{}/{}", file_path, filename))
-            .await
-            .unwrap();
+    let mut file = File::create(format!("{}/{}", file_path, filename))
+        .await
+        .unwrap();
 
-        let mut data = Vec::new();
+    let mut data = Vec::new();
 
-        // Field in turn is stream of *Bytes* object
-        while let Ok(Some(chunk)) = field.try_next().await {
-            data.extend_from_slice(&chunk);
-        }
-        let encoded = match field.headers().get("content-transfer-encoding") {
-            None => "",
-            Some(encoded) => encoded.to_str().unwrap(),
-        };
-        if encoded == "base64" {
-            let decoded = a2b_base64(data, false).unwrap();
-            file.write_all(&decoded).await.unwrap();
-        } else {
-            file.write_all(&data).await.unwrap();
-        }
+    while let Ok(Some(chunk)) = field.try_next().await {
+        data.extend_from_slice(&chunk);
+    }
+    let encoded = match field.headers().get("content-transfer-encoding") {
+        None => "",
+        Some(encoded) => encoded.to_str().unwrap(),
+    };
+    if encoded == "base64" {
+        let decoded = a2b_base64(data, false).unwrap();
+        file.write_all(&decoded).await.unwrap();
+    } else {
+        file.write_all(&data).await.unwrap();
     }
 
     conn.set::<&str, &str, bool>(task_uuid, "completed")

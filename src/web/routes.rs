@@ -156,8 +156,19 @@ async fn collection_list(pool: web::Data<DbPool>) -> impl Responder {
 #[actix_web::post("/api/v2/collections/")]
 async fn collection_post(
     pool: web::Data<Pool<RedisConnectionManager>>,
-    payload: Multipart,
+    mut payload: Multipart,
 ) -> impl Responder {
+    let mut field = payload.try_next().await.unwrap().unwrap();
+    while field.name() != "file" {
+        field = payload.try_next().await.unwrap().unwrap();
+    }
+    let filename = field.content_disposition().get_filename().unwrap();
+    let parts = filename.split('-').collect::<Vec<&str>>();
+    if parts.len() != 3 {
+        return HttpResponse::BadRequest().json(
+            json!({"error": "Collection name should follow the pattern: <namespace>-<name>-<version>.tar.gz"})
+        );
+    }
     let mut conn = pool
         .get_timeout(Duration::from_secs(1))
         .expect("couldn't get redis connection from pool");
@@ -165,7 +176,7 @@ async fn collection_post(
     conn.set::<&str, &str, bool>(task_uuid.as_str(), "waiting")
         .expect("Error setting key");
     let resp = json!({ "task": task_uuid });
-    actix_web::rt::spawn(async move { import_task(task_uuid.as_str(), conn, payload).await });
+    actix_web::rt::spawn(async move { import_task(task_uuid.as_str(), conn, field).await });
     time::sleep(Duration::from_secs(1)).await;
 
     HttpResponse::Ok().json(resp)

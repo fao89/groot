@@ -32,7 +32,7 @@ $ curl -X POST -F 'requirements=@requirements.yml' http://127.0.0.1:3030/sync/
 ## Upload collections
 
 ```console
-ansible-galaxy collection publish -c -s http://127.0.0.1:3030/ <COLLECTION_TARBALL_PATH>
+$ ansible-galaxy collection publish -c -s http://127.0.0.1:3030/ <COLLECTION_TARBALL_PATH>
 ```
 
 ## Serving content
