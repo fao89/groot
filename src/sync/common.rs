@@ -1,4 +1,4 @@
-use super::{fetch_collection, get_json, sync_collections, sync_roles};
+use super::{a2b_base64, fetch_collection, get_json, sync_collections, sync_roles};
 use crate::db_utils::get_db_connection;
 use crate::models;
 use actix_multipart::Multipart;
@@ -162,9 +162,21 @@ pub async fn import_task(
             .await
             .unwrap();
 
+        let mut data = Vec::new();
+
         // Field in turn is stream of *Bytes* object
         while let Ok(Some(chunk)) = field.try_next().await {
-            file.write_all(&chunk).await.unwrap();
+            data.extend_from_slice(&chunk);
+        }
+        let encoded = match field.headers().get("content-transfer-encoding") {
+            None => "",
+            Some(encoded) => encoded.to_str().unwrap(),
+        };
+        if encoded == "base64" {
+            let decoded = a2b_base64(data, false).unwrap();
+            file.write_all(&decoded).await.unwrap();
+        } else {
+            file.write_all(&data).await.unwrap();
         }
     }
 
