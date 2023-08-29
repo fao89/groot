@@ -141,7 +141,10 @@ pub async fn import_task(
     let filename = field.content_disposition().get_filename().unwrap();
     let parts = filename.split('-').collect::<Vec<&str>>();
     let (namespace, name, version) = (parts[0], parts[1], parts[2].replace(".tar.gz", ""));
-    let file_path = format!("collections/{}/{}/versions/{}/", namespace, name, version);
+    let file_path = format!(
+        "content/collections/{}/{}/versions/{}/",
+        namespace, name, version
+    );
     tokio::fs::create_dir_all(&file_path)
         .await
         .with_context(|| format!("Failed to create dir {file_path}"))?;

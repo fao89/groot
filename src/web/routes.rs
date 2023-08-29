@@ -289,7 +289,7 @@ async fn collection_version_retrieve(
     );
     let version_url = format!("{collection_href}versions/{version}/");
     let download_url = format!(
-        "http://{}:{}/collections/{}/{}/versions/{}/{}",
+        "http://{}:{}/content/collections/{}/{}/versions/{}/{}",
         config.server.host,
         config.server.port,
         namespace,

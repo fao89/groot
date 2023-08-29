@@ -17,7 +17,7 @@ pub async fn sync_roles(response: &Value) -> Result<()> {
 
 async fn fetch_role(data: &Value) -> Result<()> {
     let content_path = format!(
-        "roles/{}/{}/",
+        "content/roles/{}/{}/",
         data["summary_fields"]["namespace"]["name"]
             .as_str()
             .unwrap(),
@@ -34,10 +34,14 @@ async fn fetch_role(data: &Value) -> Result<()> {
         .unwrap()
         .iter()
         .filter(|x| {
-            std::fs::metadata(format!("roles/{}", x.as_str().unwrap().replace('.', "/"))).is_err()
+            std::fs::metadata(format!(
+                "content/roles/{}",
+                x.as_str().unwrap().replace('.', "/")
+            ))
+            .is_err()
         })
         .map(|d| {
-            let dep_path = format!("roles/{}", d.as_str().unwrap().replace('.', "/"));
+            let dep_path = format!("content/roles/{}", d.as_str().unwrap().replace('.', "/"));
             std::fs::create_dir_all(dep_path).unwrap();
             format!(
                 "https://galaxy.ansible.com/api/v1/roles/?namespace__name={}",
@@ -64,7 +68,7 @@ async fn fetch_versions(data: &Value) -> Result<()> {
 }
 async fn fetch_role_version(data: &Value, version: &Value) -> Result<()> {
     let version_path = format!(
-        "roles/{}/{}/versions/{}/",
+        "content/roles/{}/{}/versions/{}/",
         data["summary_fields"]["namespace"]["name"]
             .as_str()
             .unwrap(),

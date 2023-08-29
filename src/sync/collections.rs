@@ -43,7 +43,7 @@ pub async fn sync_collections(response: &Value) -> Result<()> {
 
 pub async fn fetch_collection(data: &Value) -> Result<()> {
     let content_path = format!(
-        "collections/{}/{}/",
+        "content/collections/{}/{}/",
         data["namespace"]["name"].as_str().unwrap(),
         data["name"].as_str().unwrap(),
     );
@@ -128,7 +128,7 @@ async fn fetch_collection_version(data: &Value) -> Result<Value> {
     let json_response = get_json(data["href"].as_str().unwrap()).await?;
     let namespace = json_response["namespace"]["name"].as_str().unwrap();
     let version_path = format!(
-        "collections/{}/{}/versions/{}/",
+        "content/collections/{}/{}/versions/{}/",
         namespace,
         json_response["collection"]["name"].as_str().unwrap(),
         json_response["version"].as_str().unwrap(),
@@ -154,9 +154,11 @@ async fn fetch_collection_version(data: &Value) -> Result<Value> {
         .as_object()
         .unwrap()
         .keys()
-        .filter(|x| std::fs::metadata(format!("collections/{}", x.replace('.', "/"))).is_err())
+        .filter(|x| {
+            std::fs::metadata(format!("content/collections/{}", x.replace('.', "/"))).is_err()
+        })
         .map(|d| {
-            let dep_path = format!("collections/{}", d.replace('.', "/"));
+            let dep_path = format!("content/collections/{}", d.replace('.', "/"));
             std::fs::create_dir_all(dep_path).unwrap();
             format!("{}{}/", root, d.replace('.', "/"))
         })

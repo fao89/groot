@@ -17,8 +17,8 @@ pub async fn start_actix_server() {
     let redis_url = dotenv::var("REDIS_URL").expect("REDIS_URL");
     let redis_pool = get_redis_pool(&redis_url);
 
-    std::fs::create_dir_all("collections").unwrap();
-    std::fs::create_dir_all("roles").unwrap();
+    std::fs::create_dir_all("content/collections").unwrap();
+    std::fs::create_dir_all("content/roles").unwrap();
 
     dotenv().ok();
     let config = crate::config::Config::from_env().unwrap();

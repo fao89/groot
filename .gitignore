@@ -1,5 +1,4 @@
 /target
-/roles
-/collections
+/content
 requirements.yml
 .env
