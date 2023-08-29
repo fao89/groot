@@ -148,7 +148,7 @@ pub async fn import_task(
         if field.content_type().is_none() {
             continue;
         }
-        let parts = filename.split("-").collect::<Vec<&str>>();
+        let parts = filename.split('-').collect::<Vec<&str>>();
         if parts.len() != 3 {
             panic!("Collection name should follow the pattern: <namespace>-<name>-<version>.tar.gz")
         }
