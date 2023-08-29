@@ -5,7 +5,7 @@ use diesel::{
     PgConnection,
 };
 use diesel_migrations::EmbeddedMigrations;
-use r2d2_redis::{r2d2, RedisConnectionManager};
+use r2d2_redis::RedisConnectionManager;
 use std::time::Duration;
 
 const CACHE_POOL_MAX_OPEN: u32 = 16;
@@ -55,9 +55,9 @@ pub fn get_redis_pool(redis_url: &str) -> Pool<RedisConnectionManager> {
         .expect("Error building a redis connection pool")
 }
 
-pub fn get_redis_connection(
-    pool: &r2d2::Pool<RedisConnectionManager>,
-) -> PooledConnection<RedisConnectionManager> {
+pub fn get_redis_connection() -> PooledConnection<RedisConnectionManager> {
+    let redis_url = dotenv::var("REDIS_URL").expect("REDIS_URL");
+    let pool = get_redis_pool(&redis_url);
     pool.get_timeout(Duration::from_secs(CACHE_POOL_TIMEOUT_SECONDS))
         .expect("couldn't get db connection from pool")
 }

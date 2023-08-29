@@ -1,14 +1,12 @@
 use super::{a2b_base64, fetch_collection, get_json, sync_collections, sync_roles};
-use crate::db_utils::get_db_connection;
+use crate::db_utils::{get_db_connection, get_redis_connection};
 use crate::models;
-use actix_multipart::Field;
+use actix_web::http::header::HeaderMap;
 use anyhow::{Context, Result};
 use diesel::prelude::*;
-use diesel::r2d2::PooledConnection;
 use futures::future::try_join_all;
-use futures::TryStreamExt;
 use r2d2_redis::redis::Commands;
-use r2d2_redis::RedisConnectionManager;
+use serde_json::json;
 use tokio::fs::File;
 use tokio::io::AsyncWriteExt;
 use url::Url;
@@ -135,12 +133,64 @@ pub async fn mirror_content(root: Url, content_type: &str) -> Result<()> {
 
 pub async fn import_task(
     task_uuid: &str,
-    mut conn: PooledConnection<RedisConnectionManager>,
-    mut field: Field,
+    filename: &str,
+    headers: &HeaderMap,
+    data: Vec<u8>,
 ) -> Result<()> {
-    let filename = field.content_disposition().get_filename().unwrap();
+    let mut rconn = get_redis_connection();
+    rconn
+        .set::<&str, &str, bool>(task_uuid, "running")
+        .expect("Error setting key");
+
     let parts = filename.split('-').collect::<Vec<&str>>();
     let (namespace, name, version) = (parts[0], parts[1], parts[2].replace(".tar.gz", ""));
+
+    use crate::schema::*;
+    let mut dbconn = get_db_connection();
+    let col = models::CollectionNew { namespace, name };
+    diesel::insert_into(collections::table)
+        .values(&col)
+        .on_conflict((collections::columns::namespace, collections::columns::name))
+        .do_nothing()
+        .execute(&mut dbconn)
+        .unwrap();
+
+    let saved = collections::table
+        .filter(
+            collections::columns::namespace
+                .eq(namespace)
+                .and(collections::columns::name.eq(name)),
+        )
+        .first::<models::Collection>(&mut dbconn)
+        .optional()?
+        .unwrap();
+    let content_length: usize = match headers.get("content-length") {
+        Some(header_value) => header_value.to_str().unwrap_or("0").parse().unwrap(),
+        None => "0".parse().unwrap(),
+    };
+    let config = crate::config::Config::from_env().unwrap();
+    let href = format!(
+        "http://{}:{}/api/v2/collections/{}/{}/",
+        config.server.host, config.server.port, namespace, name
+    );
+    let artifact = json!({"filename": filename, "size": content_length, "href": href});
+    let metadata = json!({"name": name, "version": version, "namespace": namespace, "groot": true});
+    let cversion = models::CollectionVersionNew {
+        collection_id: &saved.id,
+        artifact: &artifact,
+        version: &version,
+        metadata: &metadata,
+    };
+    diesel::insert_into(collection_versions::table)
+        .values(&cversion)
+        .on_conflict((
+            collection_versions::columns::collection_id,
+            collection_versions::columns::version,
+        ))
+        .do_nothing()
+        .execute(&mut dbconn)
+        .unwrap();
+
     let file_path = format!(
         "content/collections/{}/{}/versions/{}/",
         namespace, name, version
@@ -153,12 +203,7 @@ pub async fn import_task(
         .await
         .unwrap();
 
-    let mut data = Vec::new();
-
-    while let Ok(Some(chunk)) = field.try_next().await {
-        data.extend_from_slice(&chunk);
-    }
-    let encoded = match field.headers().get("content-transfer-encoding") {
+    let encoded = match headers.get("content-transfer-encoding") {
         None => "",
         Some(encoded) => encoded.to_str().unwrap(),
     };
@@ -169,7 +214,8 @@ pub async fn import_task(
         file.write_all(&data).await.unwrap();
     }
 
-    conn.set::<&str, &str, bool>(task_uuid, "completed")
+    rconn
+        .set::<&str, &str, bool>(task_uuid, "completed")
         .expect("Error setting key");
 
     Ok(())

@@ -15,7 +15,6 @@ use semver::Version;
 use serde_json::json;
 use std::collections::HashMap;
 use std::time::Duration;
-use tokio::time;
 use url::Url;
 use uuid::Uuid;
 
@@ -110,7 +109,7 @@ async fn role_version_list(path: web::Path<(String, String)>) -> impl Responder 
     let config = crate::config::Config::from_env().unwrap();
     let path = format!("roles/{namespace}/{name}/versions");
     let mut refs = Vec::new();
-    for entry in std::fs::read_dir(&path).unwrap() {
+    for entry in std::fs::read_dir(&format!("content/{path}")).unwrap() {
         let version_number = entry.unwrap().file_name().into_string().unwrap();
         let current = json!({
             "name": version_number,
@@ -176,8 +175,19 @@ async fn collection_post(
     conn.set::<&str, &str, bool>(task_uuid.as_str(), "waiting")
         .expect("Error setting key");
     let resp = json!({ "task": task_uuid });
-    actix_web::rt::spawn(async move { import_task(task_uuid.as_str(), conn, field).await });
-    time::sleep(Duration::from_secs(1)).await;
+    let mut data = Vec::new();
+    while let Ok(Some(chunk)) = field.try_next().await {
+        data.extend_from_slice(&chunk);
+    }
+    actix_web::rt::spawn(async move {
+        import_task(
+            task_uuid.as_str(),
+            field.content_disposition().get_filename().unwrap(),
+            field.headers(),
+            data,
+        )
+        .await
+    });
 
     HttpResponse::Ok().json(resp)
 }
@@ -193,7 +203,10 @@ async fn collection_import(
     let task_id = path.into_inner();
     let value = conn.get(task_id.as_str()).expect("Error getting key");
     let state: String = FromRedisValue::from_redis_value(&value).expect("Error getting value");
-    let resp = json!({"state": state, "finished_at": "now"});
+    let mut resp = json!({"state": state});
+    if state == "completed" {
+        resp = json!({"state": state, "finished_at": "now"});
+    }
     HttpResponse::Ok().json(resp)
 }
 
@@ -250,7 +263,7 @@ async fn collection_version_list(path: web::Path<(String, String)>) -> impl Resp
     let (namespace, name) = path.into_inner();
     let path = format!("collections/{namespace}/{name}/versions");
     let mut refs = Vec::new();
-    for entry in std::fs::read_dir(&path).unwrap() {
+    for entry in std::fs::read_dir(&format!("content/{path}")).unwrap() {
         let version_number = entry.unwrap().file_name().into_string().unwrap();
         refs.push(json!({
             "version": version_number,
