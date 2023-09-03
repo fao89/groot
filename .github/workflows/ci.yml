@@ -118,16 +118,17 @@ jobs:
     needs: [ubuntu, macos]
     steps:
       - uses: actions/checkout@v3
-      - name: Build image
-        run: |
-          podman version
-          buildah version
-          podman build --format docker --file Dockerfile --tag quay.io/fabricio_aguiar/groot:latest .
       - name: Quay login
         env:
           QUAY_BOT_PASSWORD: ${{ secrets.QUAY_BOT_PASSWORD }}
           QUAY_BOT_USERNAME: ${{ secrets.QUAY_BOT_USERNAME }}
-        run: echo "$QUAY_BOT_PASSWORD" | podman login -u "$QUAY_BOT_USERNAME" --password-stdin quay.io
+        run: echo "$QUAY_BOT_PASSWORD" | docker login -u "$QUAY_BOT_USERNAME" --password-stdin quay.io
       - name: Push image to quay
         run: |
-          podman push quay.io/fabricio_aguiar/groot:latest
+          sed -e '1 s/\(^FROM\)/FROM --platform=\$\{BUILDPLATFORM\}/; t' -e ' 1,// s//FROM --platform=\$\{BUILDPLATFORM\}/' Dockerfile > Dockerfile.cross
+          docker buildx create --name project-v3-builder
+          docker buildx use project-v3-builder
+          PLATFORMS=linux/arm64,linux/amd64,linux/s390x,linux/ppc64le
+          docker buildx build --push --platform=${PLATFORMS} --tag quay.io/fabricio_aguiar/groot:latest -f Dockerfile.cross .
+          docker buildx rm project-v3-builder
+          rm Dockerfile.cross

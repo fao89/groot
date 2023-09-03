@@ -2,16 +2,35 @@ version: "3.4"
 services:
   redis:
     image: redis:alpine3.18
+    volumes:
+      - "redis_data:/data"
     restart: always
+    healthcheck:
+      test: [ "CMD-SHELL", "redis-cli -h 127.0.0.1 -p 6379" ]
+      interval: 10s
+      timeout: 5s
+      retries: 5
     ports:
       - 6379:6379
+    deploy:
+      resources:
+        limits:
+          memory: '512M'
+          cpus: '1'
   postgres:
     image: postgres:alpine3.18
     restart: always
+    healthcheck:
+      test: [ "CMD-SHELL", "pg_isready -U groot" ]
+      interval: 10s
+      timeout: 5s
+      retries: 5
     environment:
       POSTGRES_PASSWORD: groot
       POSTGRES_USER: groot
       POSTGRES_DB: groot
+    volumes:
+      - "pg_data:/var/lib/postgresql"
     ports:
       - 5432:5432
     deploy:
@@ -28,16 +47,19 @@ services:
         - rust:latest
     links:
       - postgres
+      - redis
     depends_on:
       postgres:
-        condition: service_started
+        condition: service_healthy
       redis:
-        condition: service_started
+        condition: service_healthy
     environment:
       SERVER.HOST: 0.0.0.0
       SERVER.PORT: 3030
       DATABASE_URL: postgres://groot:groot@postgres:5432/groot
       REDIS_URL: redis://redis:6379
+    volumes:
+      - "groot:/content"
     deploy:
       resources:
         limits:
@@ -45,3 +67,11 @@ services:
           cpus: '2'
     ports:
       - 3030:3030
+
+volumes:
+  groot:
+    name: groot${DEV_VOLUME_SUFFIX:-dev}
+  pg_data:
+    name: pg_data${DEV_VOLUME_SUFFIX:-dev}
+  redis_data:
+    name: redis_data${DEV_VOLUME_SUFFIX:-dev}
