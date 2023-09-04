@@ -1,20 +1,32 @@
-use super::{a2b_base64, fetch_collection, get_json, sync_collections, sync_roles};
-use crate::db_utils::{get_db_connection, get_redis_connection};
+use super::{
+    a2b_base64, fetch_collection, get_json, process_collection_data, sync_collections, sync_roles,
+};
 use crate::models;
-use actix_web::http::header::HeaderMap;
+use actix_web::{http::header::HeaderMap, web};
 use anyhow::{Context, Result};
+use diesel::pg::upsert::excluded;
 use diesel::prelude::*;
+use diesel::{
+    r2d2::{ConnectionManager, Pool},
+    PgConnection,
+};
 use futures::future::try_join_all;
 use r2d2_redis::redis::Commands;
+use r2d2_redis::RedisConnectionManager;
 use serde_json::json;
+use std::time::Duration;
 use tokio::fs::File;
 use tokio::io::AsyncWriteExt;
 use url::Url;
 use yaml_rust::Yaml;
 use yaml_rust::YamlLoader;
 
-pub async fn process_requirements(root: &Url, chunk: &actix_web::web::Bytes) -> Result<()> {
-    let contents = std::str::from_utf8(chunk).unwrap();
+pub async fn process_requirements(
+    root: Url,
+    chunk: Vec<u8>,
+    pool: web::Data<Pool<ConnectionManager<PgConnection>>>,
+) -> Result<()> {
+    let contents = std::str::from_utf8(chunk.as_ref()).unwrap();
     let docs = YamlLoader::load_from_str(contents).unwrap();
     let doc = &docs[0];
     for content in "collections roles".split(' ') {
@@ -75,38 +87,25 @@ pub async fn process_requirements(root: &Url, chunk: &actix_web::web::Bytes) -> 
                 let to_fetch: Vec<_> = responses.iter().map(sync_roles).collect();
                 try_join_all(to_fetch).await?;
             } else {
-                use crate::schema::collections::dsl::*;
-                let mut conn = get_db_connection();
-
-                let to_save: Vec<_> = responses
-                    .iter()
-                    .map(|data| models::CollectionNew {
-                        namespace: data["namespace"]["name"].as_str().unwrap(),
-                        name: data["name"].as_str().unwrap(),
-                    })
-                    .collect();
-                println!("====== Saving collections ======");
-                diesel::insert_into(collections)
-                    .values(&to_save)
-                    .on_conflict((namespace, name))
-                    .do_nothing()
-                    .execute(&mut conn)
-                    .unwrap();
-                // Downloading
                 let to_fetch: Vec<_> = responses.iter().map(fetch_collection).collect();
-                try_join_all(to_fetch).await?;
+                let data = try_join_all(to_fetch).await?;
+                process_collection_data(pool.clone(), data, true).await?
             };
         }
     }
     Ok(())
 }
 
-pub async fn mirror_content(root: Url, content_type: &str) -> Result<()> {
+pub async fn mirror_content(
+    root: Url,
+    content_type: &str,
+    pool: web::Data<Pool<ConnectionManager<PgConnection>>>,
+) -> Result<()> {
     let mut target = if content_type == "roles" {
         root.join("api/v1/roles/?page_size=100")
             .context("Failed to join api/v1/roles")?
     } else if content_type == "collections" {
-        root.join("api/v2/collections/?page_size=20")
+        root.join("api/v2/collections/?page_size=100")
             .context("Failed to join api/v2/collections")?
     } else {
         panic!("Invalid content type!")
@@ -116,7 +115,7 @@ pub async fn mirror_content(root: Url, content_type: &str) -> Result<()> {
         if content_type == "roles" {
             sync_roles(&results).await?
         } else if content_type == "collections" {
-            sync_collections(&results).await?
+            sync_collections(pool.clone(), &results).await?
         } else {
             panic!("Invalid content type!")
         };
@@ -136,8 +135,12 @@ pub async fn import_task(
     filename: &str,
     headers: &HeaderMap,
     data: Vec<u8>,
+    dpool: web::Data<Pool<ConnectionManager<PgConnection>>>,
+    rpool: web::Data<Pool<RedisConnectionManager>>,
 ) -> Result<()> {
-    let mut rconn = get_redis_connection();
+    let mut rconn = rpool
+        .get_timeout(Duration::from_secs(1))
+        .expect("couldn't get redis connection from pool");
     rconn
         .set::<&str, &str, bool>(task_uuid, "running")
         .expect("Error setting key");
@@ -146,24 +149,20 @@ pub async fn import_task(
     let (namespace, name, version) = (parts[0], parts[1], parts[2].replace(".tar.gz", ""));
 
     use crate::schema::*;
-    let mut dbconn = get_db_connection();
+    let mut dbconn = dpool.get().expect("couldn't get db connection from pool");
     let col = models::CollectionNew { namespace, name };
-    diesel::insert_into(collections::table)
+    let collection_id: Vec<i32> = diesel::insert_into(collections::table)
         .values(&col)
         .on_conflict((collections::columns::namespace, collections::columns::name))
-        .do_nothing()
-        .execute(&mut dbconn)
+        .do_update()
+        .set((
+            collections::columns::namespace.eq(excluded(collections::columns::namespace)),
+            collections::columns::name.eq(excluded(collections::columns::name)),
+        ))
+        .returning(collections::columns::id)
+        .get_results(&mut dbconn)
         .unwrap();
 
-    let saved = collections::table
-        .filter(
-            collections::columns::namespace
-                .eq(namespace)
-                .and(collections::columns::name.eq(name)),
-        )
-        .first::<models::Collection>(&mut dbconn)
-        .optional()?
-        .unwrap();
     let content_length: usize = match headers.get("content-length") {
         Some(header_value) => header_value.to_str().unwrap_or("0").parse().unwrap(),
         None => "0".parse().unwrap(),
@@ -176,7 +175,7 @@ pub async fn import_task(
     let artifact = json!({"filename": filename, "size": content_length, "href": href});
     let metadata = json!({"name": name, "version": version, "namespace": namespace, "groot": true});
     let cversion = models::CollectionVersionNew {
-        collection_id: &saved.id,
+        collection_id: collection_id.first().unwrap(),
         artifact: &artifact,
         version: &version,
         metadata: &metadata,

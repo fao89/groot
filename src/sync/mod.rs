@@ -3,7 +3,7 @@ mod common;
 mod decode;
 mod roles;
 mod utils;
-pub use collections::{fetch_collection, sync_collections};
+pub use collections::{fetch_collection, process_collection_data, sync_collections};
 pub use common::{import_task, mirror_content, process_requirements};
 pub use decode::a2b_base64;
 pub use roles::sync_roles;

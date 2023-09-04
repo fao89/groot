@@ -7,7 +7,7 @@ use diesel::{
     r2d2::{ConnectionManager, Pool},
     PgConnection,
 };
-use futures::{StreamExt, TryStreamExt};
+use futures::TryStreamExt;
 use paperclip::actix::{api_v2_operation, get, post, web};
 use r2d2_redis::redis::{Commands, FromRedisValue};
 use r2d2_redis::RedisConnectionManager;
@@ -55,26 +55,28 @@ async fn api_status(
 
 #[api_v2_operation]
 #[post("/sync/{content_type}/")]
-async fn start_sync(path: web::Path<String>) -> impl Responder {
+async fn start_sync(path: web::Path<String>, pool: web::Data<DbPool>) -> impl Responder {
     let content_type = path.into_inner();
     let resp = json!({ "syncing": content_type });
     let galaxy_url = dotenv::var("GALAXY_URL").unwrap_or("https://galaxy.ansible.com/".to_string());
     let root = Url::parse(galaxy_url.as_str()).unwrap();
-    actix_web::rt::spawn(async move { mirror_content(root, content_type.as_str()).await });
+    actix_web::rt::spawn(async move { mirror_content(root, content_type.as_str(), pool).await });
     HttpResponse::Ok().json(resp)
 }
 
 #[actix_web::post("/sync/")]
-async fn start_req_sync(mut payload: Multipart) -> impl Responder {
-    while let Ok(Some(mut field)) = payload.try_next().await {
-        // Field in turn is stream of *Bytes* object
-        while let Some(chunk) = field.next().await {
-            let galaxy_url =
-                dotenv::var("GALAXY_URL").unwrap_or("https://galaxy.ansible.com/".to_string());
-            let root = Url::parse(galaxy_url.as_str()).unwrap();
-            actix_web::rt::spawn(async move { process_requirements(&root, &chunk.unwrap()).await });
-        }
+async fn start_req_sync(mut payload: Multipart, pool: web::Data<DbPool>) -> impl Responder {
+    let mut field = payload.try_next().await.unwrap().unwrap();
+    while field.name() != "requirements" {
+        field = payload.try_next().await.unwrap().unwrap();
     }
+    let mut data = Vec::new();
+    while let Ok(Some(chunk)) = field.try_next().await {
+        data.extend_from_slice(&chunk);
+    }
+    let galaxy_url = dotenv::var("GALAXY_URL").unwrap_or("https://galaxy.ansible.com/".to_string());
+    let root = Url::parse(galaxy_url.as_str()).unwrap();
+    actix_web::rt::spawn(async move { process_requirements(root, data, pool).await });
 
     let resp = json!({ "syncing": "requirements file" });
     HttpResponse::Ok().json(resp)
@@ -154,8 +156,9 @@ async fn collection_list(pool: web::Data<DbPool>) -> impl Responder {
 
 #[actix_web::post("/api/v2/collections/")]
 async fn collection_post(
-    pool: web::Data<Pool<RedisConnectionManager>>,
     mut payload: Multipart,
+    db_pool: web::Data<DbPool>,
+    redis_pool: web::Data<Pool<RedisConnectionManager>>,
 ) -> impl Responder {
     let mut field = payload.try_next().await.unwrap().unwrap();
     while field.name() != "file" {
@@ -168,7 +171,7 @@ async fn collection_post(
             json!({"error": "Collection name should follow the pattern: <namespace>-<name>-<version>.tar.gz"})
         );
     }
-    let mut conn = pool
+    let mut conn = redis_pool
         .get_timeout(Duration::from_secs(1))
         .expect("couldn't get redis connection from pool");
     let task_uuid = Uuid::new_v4().to_string();
@@ -185,6 +188,8 @@ async fn collection_post(
             field.content_disposition().get_filename().unwrap(),
             field.headers(),
             data,
+            db_pool,
+            redis_pool,
         )
         .await
     });

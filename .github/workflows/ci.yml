@@ -75,7 +75,7 @@ jobs:
           roles:
             - geerlingguy.postgresql
           collections:
-            - community.postgresql
+            - community.kubernetes
           EOF
       - name: Run
         run: |

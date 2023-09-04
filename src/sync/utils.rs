@@ -21,14 +21,14 @@ pub async fn get_with_retry(url: &str) -> Result<reqwest::Response> {
     let response = match reqwest::get(url).await {
         Ok(mut resp) => {
             let status_to_retry = ["429", "502", "503", "504", "520"];
-            let mut retry_time = 10;
+            let mut retry_time = 20;
             while status_to_retry.contains(&resp.status().as_str()) {
                 eprintln!(
                     "\nStatus {} - Retrying in {} seconds...\n",
                     resp.status().as_str(),
                     retry_time
                 );
-                if retry_time > 100 {
+                if retry_time > 300 {
                     break;
                 }
                 time::sleep(Duration::from_secs(retry_time)).await;
