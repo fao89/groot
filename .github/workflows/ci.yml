@@ -83,7 +83,7 @@ jobs:
           sleep 2
           curl -X POST -F 'requirements=@requirements.yml' http://127.0.0.1:3030/sync/
           sleep 30
-          ansible-galaxy collection install --force -vvv community.postgresql -c -s http://127.0.0.1:3030/
+          ansible-galaxy collection install --force -vvv community.kubernetes -c -s http://127.0.0.1:3030/
           wget https://galaxy.ansible.com/download/testing-k8s_demo_collection-0.0.3.tar.gz
           ansible-galaxy collection publish -c -s http://127.0.0.1:3030/ testing-k8s_demo_collection-0.0.3.tar.gz -vvvv
   macos:

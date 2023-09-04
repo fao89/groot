@@ -1,7 +1,7 @@
 use crate::models::{self, Collection};
 use crate::sync::{import_task, mirror_content, process_requirements};
 use actix_multipart::Multipart;
-use actix_web::{HttpResponse, Responder};
+use actix_web::{error, HttpResponse, Responder};
 use diesel::prelude::*;
 use diesel::{
     r2d2::{ConnectionManager, Pool},
@@ -234,6 +234,7 @@ async fn collection_retrieve(
                 .and(collections::name.eq(&name)),
         )
         .load::<(i32, String)>(&mut conn)
+        .map_err(error::ErrorNotFound)
         .unwrap();
     let (collection_id, latest_version) = results
         .iter()
