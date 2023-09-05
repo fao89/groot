@@ -33,9 +33,12 @@ async fn api_status(
     pool: web::Data<DbPool>,
     redis_pool: web::Data<Pool<RedisConnectionManager>>,
 ) -> impl Responder {
-    pool.get().expect("couldn't get db connection from pool");
+    pool.get()
+        .map_err(error::ErrorServiceUnavailable)
+        .expect("couldn't get db connection from pool");
     redis_pool
         .get()
+        .map_err(error::ErrorServiceUnavailable)
         .expect("couldn't get redis connection from pool");
     let state = pool.state();
     let redis_state = redis_pool.state();
@@ -66,9 +69,19 @@ async fn start_sync(path: web::Path<String>, pool: web::Data<DbPool>) -> impl Re
 
 #[actix_web::post("/sync/")]
 async fn start_req_sync(mut payload: Multipart, pool: web::Data<DbPool>) -> impl Responder {
-    let mut field = payload.try_next().await.unwrap().unwrap();
+    let mut field = payload
+        .try_next()
+        .await
+        .map_err(error::ErrorBadRequest)
+        .unwrap()
+        .unwrap();
     while field.name() != "requirements" {
-        field = payload.try_next().await.unwrap().unwrap();
+        field = payload
+            .try_next()
+            .await
+            .map_err(error::ErrorBadRequest)
+            .unwrap()
+            .unwrap();
     }
     let mut data = Vec::new();
     while let Ok(Some(chunk)) = field.try_next().await {
@@ -111,7 +124,10 @@ async fn role_version_list(path: web::Path<(String, String)>) -> impl Responder 
     let config = crate::config::Config::from_env().unwrap();
     let path = format!("roles/{namespace}/{name}/versions");
     let mut refs = Vec::new();
-    for entry in std::fs::read_dir(&format!("content/{path}")).unwrap() {
+    for entry in std::fs::read_dir(&format!("content/{path}"))
+        .map_err(error::ErrorInternalServerError)
+        .unwrap()
+    {
         let version_number = entry.unwrap().file_name().into_string().unwrap();
         let current = json!({
             "name": version_number,
@@ -141,10 +157,14 @@ async fn list_v2() -> impl Responder {
 #[get("/api/v2/collections/")]
 async fn collection_list(pool: web::Data<DbPool>) -> impl Responder {
     use crate::schema::*;
-    let mut conn = pool.get().expect("couldn't get db connection from pool");
+    let mut conn = pool
+        .get()
+        .map_err(error::ErrorInternalServerError)
+        .expect("couldn't get db connection from pool");
     let results = collections::table
         .select(Collection::as_select())
         .load(&mut conn)
+        .map_err(error::ErrorInternalServerError)
         .unwrap();
 
     let resp = json!({
@@ -160,23 +180,35 @@ async fn collection_post(
     db_pool: web::Data<DbPool>,
     redis_pool: web::Data<Pool<RedisConnectionManager>>,
 ) -> impl Responder {
-    let mut field = payload.try_next().await.unwrap().unwrap();
+    let mut field = payload
+        .try_next()
+        .await
+        .map_err(error::ErrorBadRequest)
+        .unwrap()
+        .unwrap();
     while field.name() != "file" {
-        field = payload.try_next().await.unwrap().unwrap();
+        field = payload
+            .try_next()
+            .await
+            .map_err(error::ErrorBadRequest)
+            .unwrap()
+            .unwrap();
     }
     let filename = field.content_disposition().get_filename().unwrap();
     let parts = filename.split('-').collect::<Vec<&str>>();
     if parts.len() != 3 {
         return HttpResponse::BadRequest().json(
-            json!({"error": "Collection name should follow the pattern: <namespace>-<name>-<version>.tar.gz"})
+            json!({"Collection name should follow the pattern": "<namespace>-<name>-<version>.tar.gz"})
         );
     }
     let mut conn = redis_pool
         .get_timeout(Duration::from_secs(1))
+        .map_err(error::ErrorInternalServerError)
         .expect("couldn't get redis connection from pool");
     let task_uuid = Uuid::new_v4().to_string();
     conn.set::<&str, &str, bool>(task_uuid.as_str(), "waiting")
-        .expect("Error setting key");
+        .map_err(error::ErrorInternalServerError)
+        .expect("Redis: Error setting key");
     let resp = json!({ "task": task_uuid });
     let mut data = Vec::new();
     while let Ok(Some(chunk)) = field.try_next().await {
@@ -204,10 +236,16 @@ async fn collection_import(
 ) -> impl Responder {
     let mut conn = pool
         .get_timeout(Duration::from_secs(1))
+        .map_err(error::ErrorInternalServerError)
         .expect("couldn't get redis connection from pool");
     let task_id = path.into_inner();
-    let value = conn.get(task_id.as_str()).expect("Error getting key");
-    let state: String = FromRedisValue::from_redis_value(&value).expect("Error getting value");
+    let value = conn
+        .get(task_id.as_str())
+        .map_err(error::ErrorInternalServerError)
+        .expect("Error getting key");
+    let state: String = FromRedisValue::from_redis_value(&value)
+        .map_err(error::ErrorInternalServerError)
+        .expect("Redis: Error getting value");
     let mut resp = json!({"state": state});
     if state == "completed" {
         resp = json!({"state": state, "finished_at": "now"});
@@ -222,7 +260,10 @@ async fn collection_retrieve(
     path: web::Path<(String, String)>,
 ) -> impl Responder {
     use crate::schema::*;
-    let mut conn = pool.get().expect("couldn't get db connection from pool");
+    let mut conn = pool
+        .get()
+        .map_err(error::ErrorInternalServerError)
+        .expect("couldn't get db connection from pool");
     let config = crate::config::Config::from_env().unwrap();
     let (namespace, name) = path.into_inner();
     let results = collections::table
@@ -269,7 +310,10 @@ async fn collection_version_list(path: web::Path<(String, String)>) -> impl Resp
     let (namespace, name) = path.into_inner();
     let path = format!("collections/{namespace}/{name}/versions");
     let mut refs = Vec::new();
-    for entry in std::fs::read_dir(&format!("content/{path}")).unwrap() {
+    for entry in std::fs::read_dir(&format!("content/{path}"))
+        .map_err(error::ErrorInternalServerError)
+        .unwrap()
+    {
         let version_number = entry.unwrap().file_name().into_string().unwrap();
         refs.push(json!({
             "version": version_number,
@@ -287,7 +331,10 @@ async fn collection_version_retrieve(
     path: web::Path<(String, String, String)>,
 ) -> impl Responder {
     use crate::schema::*;
-    let mut conn = pool.get().expect("couldn't get db connection from pool");
+    let mut conn = pool
+        .get()
+        .map_err(error::ErrorInternalServerError)
+        .expect("couldn't get db connection from pool");
     let config = crate::config::Config::from_env().unwrap();
     let (namespace, name, version) = path.into_inner();
     let result = collections::table
@@ -300,6 +347,7 @@ async fn collection_version_retrieve(
                 .and(collection_versions::version.eq(&version)),
         )
         .load::<models::CollectionVersion>(&mut conn)
+        .map_err(error::ErrorInternalServerError)
         .unwrap();
     let current_version = result.first().unwrap();
     let collection_href = format!(
