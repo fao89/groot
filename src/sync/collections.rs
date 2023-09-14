@@ -1,5 +1,5 @@
 use super::{download_tar, get_json, get_with_retry};
-use crate::models;
+use crate::models::{self, CollectionNew, CollectionVersionNew};
 use crate::schema::collection_versions;
 use actix_web::web;
 use anyhow::{Context, Result};
@@ -10,8 +10,15 @@ use diesel::{
     PgConnection,
 };
 use futures::future::try_join_all;
+use reqwest::{Client, Request};
 use serde_json::Value;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
+use std::time::Duration;
+use tokio::fs::File;
+use tokio::io::AsyncWriteExt;
+use tower::buffer::Buffer;
+use tower::limit::{ConcurrencyLimit, RateLimit};
+use tower::{Service, ServiceExt};
 use url::Url;
 
 #[derive(Debug, Clone)]
@@ -23,18 +30,147 @@ pub struct CollectionData {
     pub version: String,
     pub metadata: Value,
 }
+pub async fn get_version(
+    url: String,
+    client: Client,
+    mut service: Buffer<ConcurrencyLimit<RateLimit<Client>>, Request>,
+) -> Result<Value> {
+    let http_request = client.get(url).build().unwrap();
+    let mut is_ready = service.ready().await.is_ok();
+    while !is_ready {
+        is_ready = service.ready().await.is_ok();
+    }
+
+    let resp = service.call(http_request).await.unwrap();
+    let status = resp.status().as_str().to_string();
+    let json_response = resp.json::<Value>().await.unwrap();
+    if status != "404" {
+        let http_request = client
+            .get(json_response["download_url"].as_str().unwrap())
+            .build()
+            .unwrap();
+        let mut is_ready = service.ready().await.is_ok();
+        while !is_ready {
+            is_ready = service.ready().await.is_ok();
+        }
+
+        let version_path = format!(
+            "content/collections/{}/{}/versions/{}/",
+            json_response["namespace"]["name"].as_str().unwrap(),
+            json_response["collection"]["name"].as_str().unwrap(),
+            json_response["version"].as_str().unwrap(),
+        );
+        tokio::fs::create_dir_all(&version_path)
+            .await
+            .with_context(|| format!("Failed to create dir {version_path}"))?;
+
+        let filename = json_response["artifact"]["filename"].as_str().unwrap();
+        let resp = service.call(http_request).await.unwrap();
+        let mut file = match File::create(format!("{version_path}{filename}").as_str()).await {
+            Err(why) => panic!("couldn't create {}", why),
+            Ok(file) => file,
+        };
+        let content = resp.bytes().await?;
+        file.write_all(&content).await?;
+    }
+
+    Ok(json_response)
+}
 
 pub async fn sync_collections(
     pool: web::Data<Pool<ConnectionManager<PgConnection>>>,
     response: &Value,
 ) -> Result<()> {
-    let results = response.as_object().unwrap()["results"].as_array().unwrap();
+    let total = response.as_object().unwrap()["results"]
+        .as_array()
+        .unwrap()
+        .first()
+        .unwrap()["latest_version"]["pk"]
+        .as_u64()
+        .unwrap();
+    let client = reqwest::Client::new();
+    let service = tower::ServiceBuilder::new()
+        .buffer(5)
+        .concurrency_limit(5)
+        .rate_limit(5, Duration::from_secs(1))
+        .service(client.clone());
+    let mut fut: Vec<_> = Vec::with_capacity(100);
+    for n in 1..total + 1 {
+        let url = format!(
+            "https://galaxy.ansible.com/api/v2/collection-versions/{}/",
+            n
+        );
+        fut.push(get_version(url, client.clone(), service.clone()));
+        if n % 100 == 0 || n == total {
+            let json_data: Vec<Value> = try_join_all(fut)
+                .await
+                .context("Failed to join collection versions futures")?;
+            fut = Vec::with_capacity(100);
+            let filtered: Vec<CollectionData> = json_data
+                .iter()
+                .filter(|j| j["href"].as_str().is_some())
+                .map(|v| CollectionData {
+                    namespace: v["namespace"]["name"].as_str().unwrap().to_string(),
+                    name: v["collection"]["name"].as_str().unwrap().to_string(),
+                    download_url: v["download_url"].as_str().unwrap().to_string(),
+                    artifact: v["artifact"].clone(),
+                    version: v["version"].as_str().unwrap().to_string(),
+                    metadata: v["metadata"].clone(),
+                })
+                .collect();
+            let hashcol = filtered
+                .iter()
+                .map(|c| CollectionNew {
+                    namespace: c.namespace.as_str(),
+                    name: c.name.as_str(),
+                })
+                .collect::<HashSet<CollectionNew>>();
 
-    let collection_futures: Vec<_> = results.iter().map(fetch_collection).collect();
-    let data = try_join_all(collection_futures)
-        .await
-        .context("Failed to join collection futures")?;
-    process_collection_data(pool, data, false).await?;
+            let to_save: Vec<&CollectionNew> = hashcol.iter().collect();
+
+            use crate::schema::collections::dsl::*;
+            let mut conn = pool.get().expect("couldn't get db connection from pool");
+
+            let cdata: Vec<(i32, String, String)> = diesel::insert_into(collections)
+                .values(to_save)
+                .on_conflict((namespace, name))
+                .do_update()
+                .set((namespace.eq(excluded(namespace)), name.eq(excluded(name))))
+                .returning((id, namespace, name))
+                .get_results(&mut conn)
+                .unwrap();
+            let mut mmap: HashMap<String, i32> = HashMap::new();
+            for v in cdata.iter() {
+                mmap.insert(format!("{}.{}", v.1.as_str(), v.2.as_str()), v.0);
+            }
+            let to_save: Vec<CollectionVersionNew> = filtered
+                .iter()
+                .map(|vs| CollectionVersionNew {
+                    collection_id: &mmap
+                        [format!("{}.{}", vs.namespace.as_str(), vs.name.as_str()).as_str()],
+                    artifact: &vs.artifact,
+                    version: vs.version.as_str(),
+                    metadata: &vs.metadata,
+                })
+                .collect();
+            diesel::insert_into(collection_versions::table)
+                .values(&to_save)
+                .on_conflict((
+                    collection_versions::columns::version,
+                    collection_versions::columns::collection_id,
+                ))
+                .do_update()
+                .set((
+                    collection_versions::columns::collection_id
+                        .eq(excluded(collection_versions::columns::collection_id)),
+                    collection_versions::columns::version
+                        .eq(excluded(collection_versions::columns::version)),
+                ))
+                .execute(&mut conn)
+                .unwrap();
+        }
+    }
+
     Ok(())
 }
 

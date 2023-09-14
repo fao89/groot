@@ -9,7 +9,7 @@ pub struct Collection {
     pub namespace: String,
     pub name: String,
 }
-#[derive(Debug, Insertable)]
+#[derive(Debug, Insertable, Hash, Eq, PartialEq)]
 #[diesel(table_name = collections)]
 pub struct CollectionNew<'a> {
     pub namespace: &'a str,

@@ -105,7 +105,7 @@ pub async fn mirror_content(
         root.join("api/v1/roles/?page_size=100")
             .context("Failed to join api/v1/roles")?
     } else if content_type == "collections" {
-        root.join("api/v2/collections/?page_size=100")
+        root.join("api/internal/ui/collections/?order_by=-latest_version__pk")
             .context("Failed to join api/v2/collections")?
     } else {
         panic!("Invalid content type!")
@@ -115,7 +115,8 @@ pub async fn mirror_content(
         if content_type == "roles" {
             sync_roles(&results).await?
         } else if content_type == "collections" {
-            sync_collections(pool.clone(), &results).await?
+            sync_collections(pool.clone(), &results).await?;
+            break;
         } else {
             panic!("Invalid content type!")
         };
