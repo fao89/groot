@@ -10,6 +10,7 @@ use diesel::{
     PgConnection,
 };
 use futures::future::try_join_all;
+use log::info;
 use reqwest::{Client, Request};
 use serde_json::Value;
 use std::collections::{HashMap, HashSet};
@@ -65,6 +66,7 @@ pub async fn get_version(
             .with_context(|| format!("Failed to create dir {version_path}"))?;
 
         let filename = json_response["artifact"]["filename"].as_str().unwrap();
+        info!("Downloading {}", filename);
         let resp = service.call(http_request).await.unwrap();
         let mut file = match File::create(format!("{version_path}{filename}").as_str()).await {
             Err(why) => panic!("couldn't create {}", why),
@@ -94,14 +96,13 @@ pub async fn sync_collections(
         .concurrency_limit(5)
         .rate_limit(5, Duration::from_secs(1))
         .service(client.clone());
+    let galaxy_url = dotenv::var("GALAXY_URL").unwrap_or("https://galaxy.ansible.com/".to_string());
     let mut fut: Vec<_> = Vec::with_capacity(100);
     for n in 1..total + 1 {
-        let url = format!(
-            "https://galaxy.ansible.com/api/v2/collection-versions/{}/",
-            n
-        );
+        let url = format!("{}api/v2/collection-versions/{}/", galaxy_url, n);
         fut.push(get_version(url, client.clone(), service.clone()));
         if n % 100 == 0 || n == total {
+            info!("Fetched {} collections", n);
             let json_data: Vec<Value> = try_join_all(fut)
                 .await
                 .context("Failed to join collection versions futures")?;
@@ -130,7 +131,7 @@ pub async fn sync_collections(
 
             use crate::schema::collections::dsl::*;
             let mut conn = pool.get().expect("couldn't get db connection from pool");
-
+            info!("Inserting collection data into the DB");
             let cdata: Vec<(i32, String, String)> = diesel::insert_into(collections)
                 .values(to_save)
                 .on_conflict((namespace, name))
@@ -170,7 +171,7 @@ pub async fn sync_collections(
                 .unwrap();
         }
     }
-
+    info!("Sync is complete!");
     Ok(())
 }
 
@@ -250,6 +251,7 @@ pub async fn download_version(data: &CollectionData) -> Result<()> {
         .with_context(|| format!("Failed to parse URL {}", data.download_url))?;
     let response = get_with_retry(download_url.as_str()).await?;
     let filename = download_url.path_segments().unwrap().last().unwrap();
+    info!("Downloading {filename}");
     download_tar(format!("{version_path}{filename}").as_str(), response)
         .await
         .with_context(|| format!("Failed to download {download_url}"))?;
@@ -275,7 +277,7 @@ pub async fn process_collection_data(
         }
         use crate::schema::collections::dsl::*;
         let mut conn = pool.get().expect("couldn't get db connection from pool");
-
+        info!("Inserting collection data into the DB");
         let cdata: Vec<(i32, String, String)> = diesel::insert_into(collections)
             .values(&to_save)
             .on_conflict((namespace, name))
@@ -353,6 +355,7 @@ pub async fn process_collection_data(
                 }
             }
             if deps.keys().len() > 0 {
+                info!("Fetching collection dependencies");
                 let dependencies: Vec<_> = deps.keys().map(|url| get_json(url)).collect();
                 let deps_json = try_join_all(dependencies).await.unwrap();
                 let to_fetch: Vec<_> = deps_json.iter().map(fetch_collection).collect();
@@ -364,5 +367,6 @@ pub async fn process_collection_data(
             break;
         }
     }
+    info!("Sync is complete!");
     Ok(())
 }

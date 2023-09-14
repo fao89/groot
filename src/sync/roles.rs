@@ -1,6 +1,7 @@
 use super::{download_tar, get_json};
 use anyhow::{Context, Result};
 use futures::future::try_join_all;
+use log::info;
 use serde_json::Value;
 use std::future::Future;
 use std::pin::Pin;
@@ -12,6 +13,7 @@ pub async fn sync_roles(response: &Value) -> Result<()> {
     try_join_all(role_futures)
         .await
         .context("Failed to join roles futures")?;
+    info!("Sync is complete!");
     Ok(())
 }
 
@@ -67,12 +69,14 @@ async fn fetch_versions(data: &Value) -> Result<()> {
     Ok(())
 }
 async fn fetch_role_version(data: &Value, version: &Value) -> Result<()> {
+    let namespace = data["summary_fields"]["namespace"]["name"]
+        .as_str()
+        .unwrap();
+    let name = data["name"].as_str().unwrap();
     let version_path = format!(
         "content/roles/{}/{}/versions/{}/",
-        data["summary_fields"]["namespace"]["name"]
-            .as_str()
-            .unwrap(),
-        data["name"].as_str().unwrap(),
+        namespace,
+        name,
         version.as_str().unwrap(),
     );
     tokio::fs::create_dir_all(&version_path)
@@ -90,6 +94,12 @@ async fn fetch_role_version(data: &Value, version: &Value) -> Result<()> {
         .await
         .with_context(|| format!("Failed to download {download_url}"))?;
     let filename = download_url.path_segments().unwrap().last().unwrap();
+    info!(
+        "Downloading {}-{}-{}",
+        namespace,
+        name,
+        version.as_str().unwrap()
+    );
     download_tar(format!("{version_path}{filename}").as_str(), response)
         .await
         .unwrap();

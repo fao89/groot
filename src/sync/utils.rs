@@ -1,4 +1,5 @@
 use anyhow::{Context, Result};
+use log::warn;
 use serde_json::Value;
 use std::time::Duration;
 use tokio::fs::File;
@@ -6,8 +7,6 @@ use tokio::io::AsyncWriteExt;
 use tokio::time;
 
 pub async fn download_tar(filename: &str, response: reqwest::Response) -> Result<()> {
-    println!("Downloading {filename} ...");
-
     let mut file = match File::create(filename).await {
         Err(why) => panic!("couldn't create {}", why),
         Ok(file) => file,
@@ -23,7 +22,7 @@ pub async fn get_with_retry(url: &str) -> Result<reqwest::Response> {
             let status_to_retry = ["429", "502", "503", "504", "520"];
             let mut retry_time = 20;
             while status_to_retry.contains(&resp.status().as_str()) {
-                eprintln!(
+                warn!(
                     "\nStatus {} - Retrying in {} seconds...\n",
                     resp.status().as_str(),
                     retry_time
@@ -40,7 +39,7 @@ pub async fn get_with_retry(url: &str) -> Result<reqwest::Response> {
             resp
         }
         Err(e) => {
-            eprintln!("\nERROR - {e} - Retrying...\n");
+            warn!("\nERROR - {e} - Retrying...\n");
             time::sleep(Duration::from_secs(120)).await;
             reqwest::get(url)
                 .await

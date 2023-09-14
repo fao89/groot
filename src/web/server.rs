@@ -9,6 +9,7 @@ use diesel::{
     PgConnection,
 };
 use dotenv::dotenv;
+use log::info;
 use paperclip::actix::OpenApiExt;
 use r2d2_redis::RedisConnectionManager;
 use std::time::Duration;
@@ -18,7 +19,7 @@ const CACHE_POOL_MIN_IDLE: u32 = 8;
 const CACHE_POOL_EXPIRE_SECONDS: u64 = 60;
 
 pub async fn start_actix_server() {
-    std::env::set_var("RUST_LOG", "actix_web=info");
+    std::env::set_var("RUST_LOG", "actix_web=info,groot=info");
     pretty_env_logger::init();
     let db_url = dotenv::var("DATABASE_URL").expect("DATABASE_URL");
     let manager = ConnectionManager::<PgConnection>::new(db_url);
@@ -40,7 +41,7 @@ pub async fn start_actix_server() {
 
     dotenv().ok();
     let config = crate::config::Config::from_env().unwrap();
-    println!(
+    info!(
         "Starting server at http://{}:{}",
         config.server.host, config.server.port
     );

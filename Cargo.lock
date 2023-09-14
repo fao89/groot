@@ -895,6 +895,7 @@ dependencies = [
  "diesel_migrations",
  "dotenv",
  "futures",
+ "log",
  "paperclip",
  "pretty_env_logger",
  "r2d2_redis",

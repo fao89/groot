@@ -11,6 +11,7 @@ use diesel::{
     PgConnection,
 };
 use futures::future::try_join_all;
+use log::info;
 use r2d2_redis::redis::Commands;
 use r2d2_redis::RedisConnectionManager;
 use serde_json::json;
@@ -84,9 +85,11 @@ pub async fn process_requirements(
                 .collect();
             let responses: Vec<_> = try_join_all(content_futures).await?;
             if content == "roles" {
+                info!("Syncing roles");
                 let to_fetch: Vec<_> = responses.iter().map(sync_roles).collect();
                 try_join_all(to_fetch).await?;
             } else {
+                info!("Syncing collections");
                 let to_fetch: Vec<_> = responses.iter().map(fetch_collection).collect();
                 let data = try_join_all(to_fetch).await?;
                 process_collection_data(pool.clone(), data, true).await?
@@ -113,15 +116,17 @@ pub async fn mirror_content(
     loop {
         let results = get_json(target.as_str()).await.unwrap();
         if content_type == "roles" {
+            info!("Syncing roles");
             sync_roles(&results).await?
         } else if content_type == "collections" {
+            info!("Syncing collections");
             sync_collections(pool.clone(), &results).await?;
             break;
         } else {
             panic!("Invalid content type!")
         };
         if results.as_object().unwrap()["next"].as_str().is_none() {
-            println!("Sync is complete!");
+            info!("Sync is complete!");
             break;
         }
         target = root
@@ -198,7 +203,7 @@ pub async fn import_task(
     tokio::fs::create_dir_all(&file_path)
         .await
         .with_context(|| format!("Failed to create dir {file_path}"))?;
-
+    info!("Uploading {}", filename);
     let mut file = File::create(format!("{}/{}", file_path, filename))
         .await
         .unwrap();
