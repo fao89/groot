@@ -7,4 +7,4 @@ pub use collections::{fetch_collection, process_collection_data, sync_collection
 pub use common::{import_task, mirror_content, process_requirements};
 pub use decode::a2b_base64;
 pub use roles::sync_roles;
-pub use utils::{download_tar, get_json, get_with_retry};
+pub use utils::{build_service, download_tar, get_json, get_with_retry, request};

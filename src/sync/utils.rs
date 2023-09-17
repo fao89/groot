@@ -1,10 +1,14 @@
 use anyhow::{Context, Result};
 use log::warn;
+use reqwest::{Client, Request, Response};
 use serde_json::Value;
 use std::time::Duration;
 use tokio::fs::File;
 use tokio::io::AsyncWriteExt;
 use tokio::time;
+use tower::buffer::Buffer;
+use tower::limit::{ConcurrencyLimit, RateLimit};
+use tower::{Service, ServiceExt};
 
 pub async fn download_tar(filename: &str, response: reqwest::Response) -> Result<()> {
     let mut file = match File::create(filename).await {
@@ -56,4 +60,43 @@ pub async fn get_json(url: &str) -> Result<Value> {
         .await
         .context(format!("Failed to parse JSON from {url}"))?;
     Ok(values)
+}
+
+pub fn build_service(client: Client) -> Buffer<ConcurrencyLimit<RateLimit<Client>>, Request> {
+    let buffer = dotenv::var("GROOT_BUFFER")
+        .unwrap_or("5".to_string())
+        .as_str()
+        .parse::<usize>()
+        .unwrap();
+    let limit = dotenv::var("GROOT_CONCURRENCY_LIMIT")
+        .unwrap_or("5".to_string())
+        .as_str()
+        .parse::<usize>()
+        .unwrap();
+    let total_req = dotenv::var("GROOT_TOTAL_REQUESTS_PER_SECOND")
+        .unwrap_or("5".to_string())
+        .parse::<u64>()
+        .unwrap();
+    tower::ServiceBuilder::new()
+        .buffer(buffer)
+        .concurrency_limit(limit)
+        .rate_limit(total_req, Duration::from_secs(1))
+        .service(client.clone())
+}
+
+pub async fn request(
+    url: String,
+    client: &Client,
+    mut service: Buffer<ConcurrencyLimit<RateLimit<Client>>, Request>,
+) -> (
+    Buffer<ConcurrencyLimit<RateLimit<Client>>, Request>,
+    Response,
+) {
+    let http_request = client.get(url).build().unwrap();
+    let mut is_ready = service.ready().await.is_ok();
+    while !is_ready {
+        is_ready = service.ready().await.is_ok();
+    }
+    let response = service.call(http_request).await.unwrap();
+    (service, response)
 }
