@@ -229,7 +229,8 @@ async fn collection_post(
     HttpResponse::Ok().json(resp)
 }
 
-#[actix_web::get("/api/v2/collection-imports/{task_id}/")]
+#[api_v2_operation]
+#[get("/api/v2/collection-imports/{task_id}/")]
 async fn collection_import(
     pool: web::Data<Pool<RedisConnectionManager>>,
     path: web::Path<String>,
