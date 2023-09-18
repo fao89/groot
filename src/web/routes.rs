@@ -209,6 +209,9 @@ async fn collection_post(
     conn.set::<&str, &str, bool>(task_uuid.as_str(), "waiting")
         .map_err(error::ErrorInternalServerError)
         .expect("Redis: Error setting key");
+    conn.expire::<&str, usize>(task_uuid.as_str(), 3600)
+        .map_err(error::ErrorInternalServerError)
+        .expect("Redis: Error setting TTL");
     let resp = json!({ "task": task_uuid });
     let mut data = Vec::new();
     while let Ok(Some(chunk)) = field.try_next().await {
