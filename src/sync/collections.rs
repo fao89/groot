@@ -71,91 +71,101 @@ pub async fn sync_collections(
     pool: web::Data<Pool<ConnectionManager<PgConnection>>>,
     response: &Value,
 ) -> Result<()> {
-    let total = response.as_object().unwrap()["results"]
-        .as_array()
-        .unwrap()
-        .first()
-        .unwrap()["latest_version"]["pk"]
-        .as_u64()
-        .unwrap();
+    let results = response.as_object().unwrap()["data"].as_array().unwrap();
     let client = reqwest::Client::new();
     let service = build_service(client.clone());
     let galaxy_url = dotenv::var("GALAXY_URL").unwrap_or("https://galaxy.ansible.com/".to_string());
-    let mut fut: Vec<_> = Vec::with_capacity(100);
-    for n in 1..total + 1 {
-        let url = format!("{}api/v2/collection-versions/{}/", galaxy_url, n);
-        fut.push(get_version(url, client.clone(), service.clone()));
-        if n % 100 == 0 || n == total {
-            info!("Fetched {} collections", n);
-            let json_data: Vec<Value> = try_join_all(fut)
-                .await
-                .context("Failed to join collection versions futures")?;
-            fut = Vec::with_capacity(100);
-            let filtered: Vec<CollectionData> = json_data
-                .iter()
-                .filter(|j| j["href"].as_str().is_some())
-                .map(|v| CollectionData {
-                    namespace: v["namespace"]["name"].as_str().unwrap().to_string(),
-                    name: v["collection"]["name"].as_str().unwrap().to_string(),
-                    download_url: v["download_url"].as_str().unwrap().to_string(),
-                    artifact: v["artifact"].clone(),
-                    version: v["version"].as_str().unwrap().to_string(),
-                    metadata: v["metadata"].clone(),
-                })
-                .collect();
-            let hashcol = filtered
-                .iter()
-                .map(|c| CollectionNew {
-                    namespace: c.namespace.as_str(),
-                    name: c.name.as_str(),
-                })
-                .collect::<HashSet<CollectionNew>>();
+    let collection_version_futures: Vec<_> = results
+        .iter()
+        .map(|v| {
+            let nspace = v["collection_version"]["namespace"]
+                .as_str()
+                .unwrap()
+                .to_string();
+            let n = v["collection_version"]["name"]
+                .as_str()
+                .unwrap()
+                .to_string();
+            let vs = v["collection_version"]["version"]
+                .as_str()
+                .unwrap()
+                .to_string();
+            get_version(
+                format!(
+                    "{}api/v3/plugin/ansible/content/published/collections/index/{}/{}/versions/{}/",
+                    galaxy_url, nspace, n, vs
+                ),
+                client.clone(),
+                service.clone(),
+            )
+        })
+        .collect();
+    let cversions = try_join_all(collection_version_futures)
+        .await
+        .context("Failed to join collection versions futures")?;
 
-            let to_save: Vec<&CollectionNew> = hashcol.iter().collect();
+    let filtered: Vec<CollectionData> = cversions
+        .iter()
+        .filter(|j| j["href"].as_str().is_some())
+        .map(|v| CollectionData {
+            namespace: v["namespace"]["name"].as_str().unwrap().to_string(),
+            name: v["collection"]["name"].as_str().unwrap().to_string(),
+            download_url: v["download_url"].as_str().unwrap().to_string(),
+            artifact: v["artifact"].clone(),
+            version: v["version"].as_str().unwrap().to_string(),
+            metadata: v["metadata"].clone(),
+        })
+        .collect();
+    let hashcol = filtered
+        .iter()
+        .map(|c| CollectionNew {
+            namespace: c.namespace.as_str(),
+            name: c.name.as_str(),
+        })
+        .collect::<HashSet<CollectionNew>>();
 
-            use crate::schema::collections::dsl::*;
-            let mut conn = pool.get().expect("couldn't get db connection from pool");
-            info!("Inserting collection data into the DB");
-            let cdata: Vec<(i32, String, String)> = diesel::insert_into(collections)
-                .values(to_save)
-                .on_conflict((namespace, name))
-                .do_update()
-                .set((namespace.eq(excluded(namespace)), name.eq(excluded(name))))
-                .returning((id, namespace, name))
-                .get_results(&mut conn)
-                .unwrap();
-            let mut mmap: HashMap<String, i32> = HashMap::new();
-            for v in cdata.iter() {
-                mmap.insert(format!("{}.{}", v.1.as_str(), v.2.as_str()), v.0);
-            }
-            let to_save: Vec<CollectionVersionNew> = filtered
-                .iter()
-                .map(|vs| CollectionVersionNew {
-                    collection_id: &mmap
-                        [format!("{}.{}", vs.namespace.as_str(), vs.name.as_str()).as_str()],
-                    artifact: &vs.artifact,
-                    version: vs.version.as_str(),
-                    metadata: &vs.metadata,
-                })
-                .collect();
-            diesel::insert_into(collection_versions::table)
-                .values(&to_save)
-                .on_conflict((
-                    collection_versions::columns::version,
-                    collection_versions::columns::collection_id,
-                ))
-                .do_update()
-                .set((
-                    collection_versions::columns::collection_id
-                        .eq(excluded(collection_versions::columns::collection_id)),
-                    collection_versions::columns::version
-                        .eq(excluded(collection_versions::columns::version)),
-                ))
-                .execute(&mut conn)
-                .unwrap();
-        }
+    let to_save: Vec<&CollectionNew> = hashcol.iter().collect();
+
+    use crate::schema::collections::dsl::*;
+    let mut conn = pool.get().expect("couldn't get db connection from pool");
+    info!("Inserting collection data into the DB");
+    let cdata: Vec<(i32, String, String)> = diesel::insert_into(collections)
+        .values(to_save)
+        .on_conflict((namespace, name))
+        .do_update()
+        .set((namespace.eq(excluded(namespace)), name.eq(excluded(name))))
+        .returning((id, namespace, name))
+        .get_results(&mut conn)
+        .unwrap();
+    let mut mmap: HashMap<String, i32> = HashMap::new();
+    for v in cdata.iter() {
+        mmap.insert(format!("{}.{}", v.1.as_str(), v.2.as_str()), v.0);
     }
-    info!("Sync is complete!");
+    let to_save: Vec<CollectionVersionNew> = filtered
+        .iter()
+        .map(|vs| CollectionVersionNew {
+            collection_id: &mmap
+                [format!("{}.{}", vs.namespace.as_str(), vs.name.as_str()).as_str()],
+            artifact: &vs.artifact,
+            version: vs.version.as_str(),
+            metadata: &vs.metadata,
+        })
+        .collect();
+    diesel::insert_into(collection_versions::table)
+        .values(&to_save)
+        .on_conflict((
+            collection_versions::columns::version,
+            collection_versions::columns::collection_id,
+        ))
+        .do_update()
+        .set((
+            collection_versions::columns::collection_id
+                .eq(excluded(collection_versions::columns::collection_id)),
+            collection_versions::columns::version
+                .eq(excluded(collection_versions::columns::version)),
+        ))
+        .execute(&mut conn)
+        .unwrap();
     Ok(())
 }
 
@@ -172,14 +182,19 @@ pub async fn fetch_collection(data: &Value) -> Result<Vec<CollectionData>> {
 
 async fn fetch_versions(url: &Value) -> Result<Vec<CollectionData>> {
     let mut versions: Vec<CollectionData> = Vec::new();
-    let mut versions_url = format!("{}?page_size=100", url.as_str().unwrap());
+    let galaxy_url = dotenv::var("GALAXY_URL").unwrap_or("https://galaxy.ansible.com/".to_string());
+    let mut versions_url = format!(
+        "{}{}?limit=100",
+        galaxy_url.strip_suffix('/').unwrap(),
+        url.as_str().unwrap()
+    );
     let client = reqwest::Client::new();
     let mut service = build_service(client.clone());
     loop {
         let (svc, resp) = request(versions_url, &client, service).await;
         service = svc;
         let json_response = resp.json::<Value>().await.unwrap();
-        let results = json_response.as_object().unwrap()["results"]
+        let results = json_response.as_object().unwrap()["data"]
             .as_array()
             .unwrap();
 
@@ -188,7 +203,11 @@ async fn fetch_versions(url: &Value) -> Result<Vec<CollectionData>> {
             .iter()
             .map(|v| {
                 get_version(
-                    v["href"].as_str().unwrap().to_string(),
+                    format!(
+                        "{}{}",
+                        galaxy_url.strip_suffix('/').unwrap(),
+                        v["href"].as_str().unwrap()
+                    ),
                     client.clone(),
                     service.clone(),
                 )
@@ -210,13 +229,13 @@ async fn fetch_versions(url: &Value) -> Result<Vec<CollectionData>> {
             .collect();
         versions.extend_from_slice(&cdata);
 
-        if json_response.as_object().unwrap()["next"]
+        if json_response.as_object().unwrap()["links"]["next"]
             .as_str()
             .is_none()
         {
             break;
         }
-        versions_url = json_response.as_object().unwrap()["next"]
+        versions_url = json_response.as_object().unwrap()["links"]["next"]
             .as_str()
             .unwrap()
             .to_string();
@@ -285,7 +304,7 @@ pub async fn process_collection_data(
         if fetch_dependencies {
             let galaxy_url =
                 dotenv::var("GALAXY_URL").unwrap_or("https://galaxy.ansible.com/".to_string());
-            let collections_endpoint = format!("{}api/v2/collections/", galaxy_url);
+            let collections_endpoint = format!("{}api/v3/collections/", galaxy_url);
             let dependencies: Vec<Vec<String>> = versions
                 .iter()
                 .filter(|c| !c.metadata["dependencies"].as_object().unwrap().is_empty())

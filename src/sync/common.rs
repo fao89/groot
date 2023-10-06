@@ -32,8 +32,8 @@ pub async fn process_requirements(
     let doc = &docs[0];
     for content in "collections roles".split(' ') {
         let url_path = match content {
-            "roles" => "api/v1/roles/?namespace__name=",
-            "collections" => "api/v2/collections/",
+            "roles" => "api/v1/roles/?namespace=",
+            "collections" => "api/v3/collections/",
             _ => panic!("Invalid content type!"),
         };
         let url_sep = match content {
@@ -108,8 +108,8 @@ pub async fn mirror_content(
         root.join("api/v1/roles/?page_size=100")
             .context("Failed to join api/v1/roles")?
     } else if content_type == "collections" {
-        root.join("api/internal/ui/collections/?order_by=-latest_version__pk")
-            .context("Failed to join api/v2/collections")?
+        root.join("api/v3/plugin/ansible/search/collection-versions/?is_deprecated=false&repository_label=!hide_from_search&offset=0&limit=100")
+            .context("Failed to join api/v3/collections")?
     } else {
         panic!("Invalid content type!")
     };
@@ -117,21 +117,34 @@ pub async fn mirror_content(
         let results = get_json(target.as_str()).await.unwrap();
         if content_type == "roles" {
             info!("Syncing roles");
-            sync_roles(&results).await?
+            sync_roles(&results).await?;
+            if results.as_object().unwrap()["next"].as_str().is_none() {
+                info!("Sync is complete!");
+                break;
+            }
+            target = root
+                .join(results.as_object().unwrap()["next_link"].as_str().unwrap())
+                .context("Failed to join next_link")?
         } else if content_type == "collections" {
             info!("Syncing collections");
             sync_collections(pool.clone(), &results).await?;
-            break;
+            if results.as_object().unwrap()["links"]["next"]
+                .as_str()
+                .is_none()
+            {
+                info!("Sync is complete!");
+                break;
+            }
+            target = root
+                .join(
+                    results.as_object().unwrap()["links"]["next"]
+                        .as_str()
+                        .unwrap(),
+                )
+                .context("Failed to join next_link")?
         } else {
             panic!("Invalid content type!")
         };
-        if results.as_object().unwrap()["next"].as_str().is_none() {
-            info!("Sync is complete!");
-            break;
-        }
-        target = root
-            .join(results.as_object().unwrap()["next_link"].as_str().unwrap())
-            .context("Failed to join next_link")?
     }
     Ok(())
 }

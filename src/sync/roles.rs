@@ -38,16 +38,19 @@ async fn fetch_role(data: &Value) -> Result<()> {
         .filter(|x| {
             std::fs::metadata(format!(
                 "content/roles/{}",
-                x.as_str().unwrap().replace('.', "/")
+                x["name"].as_str().unwrap().replace('.', "/")
             ))
             .is_err()
         })
         .map(|d| {
-            let dep_path = format!("content/roles/{}", d.as_str().unwrap().replace('.', "/"));
+            let dep_path = format!(
+                "content/roles/{}",
+                d["name"].as_str().unwrap().replace('.', "/")
+            );
             std::fs::create_dir_all(dep_path).unwrap();
             format!(
-                "https://galaxy.ansible.com/api/v1/roles/?namespace__name={}",
-                d.as_str().unwrap().replace('.', "&name=")
+                "https://galaxy.ansible.com/api/v1/roles/?namespace={}",
+                d["name"].as_str().unwrap().replace('.', "&name=")
             )
         })
         .collect();
@@ -65,7 +68,9 @@ async fn fetch_versions(data: &Value) -> Result<()> {
     try_join_all(version_futures)
         .await
         .context("Failed to join role versions futures")?;
-    fetch_role_version(data, &data["github_branch"]).await?;
+    if data["github_branch"].as_str().is_some() {
+        fetch_role_version(data, &data["github_branch"]).await?;
+    }
     Ok(())
 }
 async fn fetch_role_version(data: &Value, version: &Value) -> Result<()> {
