@@ -64,12 +64,12 @@ pub async fn get_json(url: &str) -> Result<Value> {
 
 pub fn build_service(client: Client) -> Buffer<ConcurrencyLimit<RateLimit<Client>>, Request> {
     let buffer = dotenv::var("GROOT_BUFFER")
-        .unwrap_or("5".to_string())
+        .unwrap_or("100".to_string())
         .as_str()
         .parse::<usize>()
         .unwrap();
     let limit = dotenv::var("GROOT_CONCURRENCY_LIMIT")
-        .unwrap_or("5".to_string())
+        .unwrap_or("10".to_string())
         .as_str()
         .parse::<usize>()
         .unwrap();

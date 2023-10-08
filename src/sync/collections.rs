@@ -70,10 +70,10 @@ pub async fn get_version(
 pub async fn sync_collections(
     pool: web::Data<Pool<ConnectionManager<PgConnection>>>,
     response: &Value,
+    client: Client,
+    service: Buffer<ConcurrencyLimit<RateLimit<Client>>, Request>,
 ) -> Result<()> {
     let results = response.as_object().unwrap()["data"].as_array().unwrap();
-    let client = reqwest::Client::new();
-    let service = build_service(client.clone());
     let galaxy_url = dotenv::var("GALAXY_URL").unwrap_or("https://galaxy.ansible.com/".to_string());
     let collection_version_futures: Vec<_> = results
         .iter()

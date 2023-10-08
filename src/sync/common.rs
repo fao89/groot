@@ -1,5 +1,6 @@
 use super::{
-    a2b_base64, fetch_collection, get_json, process_collection_data, sync_collections, sync_roles,
+    a2b_base64, build_service, fetch_collection, get_json, process_collection_data,
+    sync_collections, sync_roles,
 };
 use crate::models;
 use actix_web::{http::header::HeaderMap, web};
@@ -113,6 +114,8 @@ pub async fn mirror_content(
     } else {
         panic!("Invalid content type!")
     };
+    let client = reqwest::Client::new();
+    let service = build_service(client.clone());
     loop {
         let results = get_json(target.as_str()).await.unwrap();
         if content_type == "roles" {
@@ -127,7 +130,7 @@ pub async fn mirror_content(
                 .context("Failed to join next_link")?
         } else if content_type == "collections" {
             info!("Syncing collections");
-            sync_collections(pool.clone(), &results).await?;
+            sync_collections(pool.clone(), &results, client.clone(), service.clone()).await?;
             if results.as_object().unwrap()["links"]["next"]
                 .as_str()
                 .is_none()
