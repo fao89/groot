@@ -24,10 +24,19 @@ use yaml_rust::Yaml;
 use yaml_rust::YamlLoader;
 
 pub async fn process_requirements(
+    task_uuid: &str,
     root: Url,
     chunk: Vec<u8>,
     pool: web::Data<Pool<ConnectionManager<PgConnection>>>,
+    rpool: web::Data<Pool<RedisConnectionManager>>,
 ) -> Result<()> {
+    let mut rconn = rpool
+        .get_timeout(Duration::from_secs(1))
+        .expect("couldn't get redis connection from pool");
+    rconn
+        .set::<&str, &str, bool>(task_uuid, "running")
+        .expect("Error setting key");
+
     let contents = std::str::from_utf8(chunk.as_ref()).unwrap();
     let docs = YamlLoader::load_from_str(contents).unwrap();
     let doc = &docs[0];
@@ -97,14 +106,27 @@ pub async fn process_requirements(
             };
         }
     }
+    rconn
+        .set::<&str, &str, bool>(task_uuid, "completed")
+        .expect("Error setting key");
+
     Ok(())
 }
 
 pub async fn mirror_content(
+    task_uuid: &str,
     root: Url,
     content_type: &str,
     pool: web::Data<Pool<ConnectionManager<PgConnection>>>,
+    rpool: web::Data<Pool<RedisConnectionManager>>,
 ) -> Result<()> {
+    let mut rconn = rpool
+        .get_timeout(Duration::from_secs(1))
+        .expect("couldn't get redis connection from pool");
+    rconn
+        .set::<&str, &str, bool>(task_uuid, "running")
+        .expect("Error setting key");
+
     let mut target = if content_type == "roles" {
         root.join("api/v1/roles/?page_size=100")
             .context("Failed to join api/v1/roles")?
@@ -149,6 +171,10 @@ pub async fn mirror_content(
             panic!("Invalid content type!")
         };
     }
+    rconn
+        .set::<&str, &str, bool>(task_uuid, "completed")
+        .expect("Error setting key");
+
     Ok(())
 }
 

@@ -57,18 +57,68 @@ async fn api_status(
 }
 
 #[api_v2_operation]
+#[get("/api/v2/tasks/{task_id}/")]
+async fn task_retrieve(
+    pool: web::Data<Pool<RedisConnectionManager>>,
+    path: web::Path<String>,
+) -> impl Responder {
+    let mut conn = pool
+        .get_timeout(Duration::from_secs(1))
+        .map_err(error::ErrorInternalServerError)
+        .expect("couldn't get redis connection from pool");
+    let task_id = path.into_inner();
+    let value = conn
+        .get(task_id.as_str())
+        .map_err(error::ErrorInternalServerError)
+        .expect("Error getting key");
+    let state: String = FromRedisValue::from_redis_value(&value)
+        .map_err(error::ErrorInternalServerError)
+        .expect("Redis: Error getting value");
+    let resp = json!({"state": state});
+    HttpResponse::Ok().json(resp)
+}
+
+#[api_v2_operation]
 #[post("/sync/{content_type}/")]
-async fn start_sync(path: web::Path<String>, pool: web::Data<DbPool>) -> impl Responder {
+async fn start_sync(
+    path: web::Path<String>,
+    db_pool: web::Data<DbPool>,
+    redis_pool: web::Data<Pool<RedisConnectionManager>>,
+) -> impl Responder {
     let content_type = path.into_inner();
-    let resp = json!({ "syncing": content_type });
     let galaxy_url = dotenv::var("GALAXY_URL").unwrap_or("https://galaxy.ansible.com/".to_string());
     let root = Url::parse(galaxy_url.as_str()).unwrap();
-    actix_web::rt::spawn(async move { mirror_content(root, content_type.as_str(), pool).await });
+    let mut conn = redis_pool
+        .get_timeout(Duration::from_secs(1))
+        .map_err(error::ErrorInternalServerError)
+        .expect("couldn't get redis connection from pool");
+    let task_uuid = Uuid::new_v4().to_string();
+    conn.set::<&str, &str, bool>(task_uuid.as_str(), "waiting")
+        .map_err(error::ErrorInternalServerError)
+        .expect("Redis: Error setting key");
+    conn.expire::<&str, usize>(task_uuid.as_str(), 172800)
+        .map_err(error::ErrorInternalServerError)
+        .expect("Redis: Error setting TTL");
+    let resp = json!({ "syncing": content_type, "task": task_uuid });
+    actix_web::rt::spawn(async move {
+        mirror_content(
+            task_uuid.as_str(),
+            root,
+            content_type.as_str(),
+            db_pool,
+            redis_pool,
+        )
+        .await
+    });
     HttpResponse::Ok().json(resp)
 }
 
 #[actix_web::post("/sync/")]
-async fn start_req_sync(mut payload: Multipart, pool: web::Data<DbPool>) -> impl Responder {
+async fn start_req_sync(
+    mut payload: Multipart,
+    db_pool: web::Data<DbPool>,
+    redis_pool: web::Data<Pool<RedisConnectionManager>>,
+) -> impl Responder {
     let mut field = payload
         .try_next()
         .await
@@ -89,9 +139,22 @@ async fn start_req_sync(mut payload: Multipart, pool: web::Data<DbPool>) -> impl
     }
     let galaxy_url = dotenv::var("GALAXY_URL").unwrap_or("https://galaxy.ansible.com/".to_string());
     let root = Url::parse(galaxy_url.as_str()).unwrap();
-    actix_web::rt::spawn(async move { process_requirements(root, data, pool).await });
+    let mut conn = redis_pool
+        .get_timeout(Duration::from_secs(1))
+        .map_err(error::ErrorInternalServerError)
+        .expect("couldn't get redis connection from pool");
+    let task_uuid = Uuid::new_v4().to_string();
+    conn.set::<&str, &str, bool>(task_uuid.as_str(), "waiting")
+        .map_err(error::ErrorInternalServerError)
+        .expect("Redis: Error setting key");
+    conn.expire::<&str, usize>(task_uuid.as_str(), 172800)
+        .map_err(error::ErrorInternalServerError)
+        .expect("Redis: Error setting TTL");
+    let resp = json!({ "syncing": "requirements file", "task": task_uuid });
+    actix_web::rt::spawn(async move {
+        process_requirements(task_uuid.as_str(), root, data, db_pool, redis_pool).await
+    });
 
-    let resp = json!({ "syncing": "requirements file" });
     HttpResponse::Ok().json(resp)
 }
 
