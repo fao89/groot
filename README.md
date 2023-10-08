@@ -14,7 +14,7 @@ Please have a `.env` file with the following variables:
 
 ## Downloading
 ```console
-$ curl -L https://github.com/fao89/groot/releases/download/0.5.3/groot-linux-amd64 -o groot
+$ curl -L https://github.com/fao89/groot/releases/download/0.6.0/groot-linux-amd64 -o groot
 $ chmod +x groot
 ```
 ## Sync roles or collections
@@ -37,7 +37,7 @@ $ ansible-galaxy collection publish -c -s http://127.0.0.1:3030/ <COLLECTION_TAR
 
 ## Serving content
 ```console
-$ curl -L https://github.com/fao89/groot/releases/download/0.5.3/groot-linux-amd64 -o groot
+$ curl -L https://github.com/fao89/groot/releases/download/0.6.0/groot-linux-amd64 -o groot
 $ chmod +x groot
 $ ./groot
 ```
