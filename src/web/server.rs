@@ -56,6 +56,7 @@ pub async fn start_actix_server() {
             .service(role_retrieve)
             .service(role_version_list)
             .service(list_v2)
+            .service(task_list)
             .service(task_retrieve)
             .service(collection_list)
             .service(collection_retrieve)

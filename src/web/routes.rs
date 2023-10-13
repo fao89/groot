@@ -2,7 +2,7 @@ use crate::models::{self, Collection};
 use crate::sync::{import_task, mirror_content, process_requirements};
 use actix_multipart::Multipart;
 use actix_web::{error, HttpResponse, Responder};
-use diesel::prelude::*;
+use diesel::{prelude::*, ExpressionMethods};
 use diesel::{
     r2d2::{ConnectionManager, Pool},
     PgConnection,
@@ -12,7 +12,7 @@ use paperclip::actix::{api_v2_operation, get, post, web};
 use r2d2_redis::redis::{Commands, FromRedisValue};
 use r2d2_redis::RedisConnectionManager;
 use semver::Version;
-use serde_json::json;
+use serde_json::{json, Value};
 use std::collections::HashMap;
 use std::time::Duration;
 use url::Url;
@@ -79,6 +79,42 @@ async fn task_retrieve(
 }
 
 #[api_v2_operation]
+#[get("/api/v2/tasks/")]
+async fn task_list(pool: web::Data<Pool<RedisConnectionManager>>) -> impl Responder {
+    let mut conn = pool
+        .get_timeout(Duration::from_secs(1))
+        .map_err(error::ErrorInternalServerError)
+        .expect("couldn't get redis connection from pool");
+    let mut resp = json!({"tasks": {}});
+    let patterns = vec!["upload:*", "mirror:*", "requirements:*"];
+    for pattern in patterns {
+        let values = conn
+            .keys(pattern)
+            .map_err(error::ErrorInternalServerError)
+            .expect("Error getting keys");
+        let ids: Vec<String> = FromRedisValue::from_redis_value(&values)
+            .map_err(error::ErrorInternalServerError)
+            .expect("Redis: Error getting value");
+        let data: Vec<Value> = ids
+            .iter()
+            .map(|id| {
+                let value: String = FromRedisValue::from_redis_value(
+                    &conn
+                        .get(id)
+                        .map_err(error::ErrorInternalServerError)
+                        .expect("Error getting key"),
+                )
+                .map_err(error::ErrorInternalServerError)
+                .expect("Redis: Error getting value");
+                json!({"uuid": id, "state": value})
+            })
+            .collect();
+        resp["tasks"][pattern.replace(":*", "")] = Value::Array(data)
+    }
+    HttpResponse::Ok().json(resp)
+}
+
+#[api_v2_operation]
 #[post("/sync/{content_type}/")]
 async fn start_sync(
     path: web::Path<String>,
@@ -92,7 +128,7 @@ async fn start_sync(
         .get_timeout(Duration::from_secs(1))
         .map_err(error::ErrorInternalServerError)
         .expect("couldn't get redis connection from pool");
-    let task_uuid = Uuid::new_v4().to_string();
+    let task_uuid = format!("mirror:{}", Uuid::new_v4());
     conn.set::<&str, &str, bool>(task_uuid.as_str(), "waiting")
         .map_err(error::ErrorInternalServerError)
         .expect("Redis: Error setting key");
@@ -143,7 +179,7 @@ async fn start_req_sync(
         .get_timeout(Duration::from_secs(1))
         .map_err(error::ErrorInternalServerError)
         .expect("couldn't get redis connection from pool");
-    let task_uuid = Uuid::new_v4().to_string();
+    let task_uuid = format!("requirements:{}", Uuid::new_v4());
     conn.set::<&str, &str, bool>(task_uuid.as_str(), "waiting")
         .map_err(error::ErrorInternalServerError)
         .expect("Redis: Error setting key");
@@ -268,7 +304,7 @@ async fn collection_post(
         .get_timeout(Duration::from_secs(1))
         .map_err(error::ErrorInternalServerError)
         .expect("couldn't get redis connection from pool");
-    let task_uuid = Uuid::new_v4().to_string();
+    let task_uuid = format!("upload:{}", Uuid::new_v4());
     conn.set::<&str, &str, bool>(task_uuid.as_str(), "waiting")
         .map_err(error::ErrorInternalServerError)
         .expect("Redis: Error setting key");
