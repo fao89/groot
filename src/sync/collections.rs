@@ -1,4 +1,4 @@
-use super::{build_service, get_json, request};
+use super::{get_json, request};
 use crate::models::{self, CollectionNew, CollectionVersionNew};
 use crate::schema::collection_versions;
 use actix_web::web;
@@ -31,10 +31,9 @@ pub struct CollectionData {
 
 pub async fn get_version(
     url: String,
-    client: Client,
     service: Buffer<ConcurrencyLimit<RateLimit<Client>>, Request>,
 ) -> Result<Value> {
-    let (service, resp) = request(url, &client, service).await;
+    let (service, resp) = request(url, service).await;
     let status = resp.status().as_str().to_string();
     let json_response = resp.json::<Value>().await.unwrap();
     if status != "404" {
@@ -52,7 +51,6 @@ pub async fn get_version(
         info!("Downloading {}", filename);
         let (_, resp) = request(
             json_response["download_url"].as_str().unwrap().to_string(),
-            &client,
             service,
         )
         .await;
@@ -70,7 +68,6 @@ pub async fn get_version(
 pub async fn sync_collections(
     pool: web::Data<Pool<ConnectionManager<PgConnection>>>,
     response: &Value,
-    client: Client,
     service: Buffer<ConcurrencyLimit<RateLimit<Client>>, Request>,
 ) -> Result<()> {
     let results = response.as_object().unwrap()["data"].as_array().unwrap();
@@ -95,7 +92,6 @@ pub async fn sync_collections(
                     "{}api/v3/plugin/ansible/content/published/collections/index/{}/{}/versions/{}/",
                     galaxy_url, nspace, n, vs
                 ),
-                client.clone(),
                 service.clone(),
             )
         })
@@ -169,18 +165,10 @@ pub async fn sync_collections(
     Ok(())
 }
 
-pub async fn fetch_collection(data: &Value) -> Result<Vec<CollectionData>> {
-    fetch_versions(&data["versions_url"])
-        .await
-        .with_context(|| {
-            format!(
-                "Failed to fetch collection versions from {}",
-                data["versions_url"]
-            )
-        })
-}
-
-async fn fetch_versions(url: &Value) -> Result<Vec<CollectionData>> {
+pub async fn fetch_versions(
+    mut service: Buffer<ConcurrencyLimit<RateLimit<Client>>, Request>,
+    url: &Value,
+) -> Result<Vec<CollectionData>> {
     let mut versions: Vec<CollectionData> = Vec::new();
     let galaxy_url = dotenv::var("GALAXY_URL").unwrap_or("https://galaxy.ansible.com/".to_string());
     let mut versions_url = format!(
@@ -188,10 +176,8 @@ async fn fetch_versions(url: &Value) -> Result<Vec<CollectionData>> {
         galaxy_url.strip_suffix('/').unwrap(),
         url.as_str().unwrap()
     );
-    let client = reqwest::Client::new();
-    let mut service = build_service(client.clone());
     loop {
-        let (svc, resp) = request(versions_url, &client, service).await;
+        let (svc, resp) = request(versions_url, service).await;
         service = svc;
         let json_response = resp.json::<Value>().await.unwrap();
         let results = json_response.as_object().unwrap()["data"]
@@ -208,7 +194,6 @@ async fn fetch_versions(url: &Value) -> Result<Vec<CollectionData>> {
                         galaxy_url.strip_suffix('/').unwrap(),
                         v["href"].as_str().unwrap()
                     ),
-                    client.clone(),
                     service.clone(),
                 )
             })
@@ -245,6 +230,7 @@ async fn fetch_versions(url: &Value) -> Result<Vec<CollectionData>> {
 
 pub async fn process_collection_data(
     pool: web::Data<Pool<ConnectionManager<PgConnection>>>,
+    service: Buffer<ConcurrencyLimit<RateLimit<Client>>, Request>,
     data: Vec<Vec<CollectionData>>,
     fetch_dependencies: bool,
 ) -> Result<()> {
@@ -339,7 +325,10 @@ pub async fn process_collection_data(
                 info!("Fetching collection dependencies");
                 let dependencies: Vec<_> = deps.keys().map(|url| get_json(url)).collect();
                 let deps_json = try_join_all(dependencies).await.unwrap();
-                let to_fetch: Vec<_> = deps_json.iter().map(fetch_collection).collect();
+                let to_fetch: Vec<_> = deps_json
+                    .iter()
+                    .map(|c| fetch_versions(service.clone(), &c["versions_url"]))
+                    .collect();
                 to_process = try_join_all(to_fetch).await.unwrap();
             } else {
                 break;

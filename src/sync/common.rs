@@ -1,6 +1,6 @@
 use super::{
-    a2b_base64, build_service, fetch_collection, get_json, process_collection_data,
-    sync_collections, sync_roles,
+    a2b_base64, build_service, fetch_versions, get_json, process_collection_data, sync_collections,
+    sync_roles,
 };
 use crate::models;
 use actix_web::{http::header::HeaderMap, web};
@@ -100,9 +100,14 @@ pub async fn process_requirements(
                 try_join_all(to_fetch).await?;
             } else {
                 info!("Syncing collections");
-                let to_fetch: Vec<_> = responses.iter().map(fetch_collection).collect();
+                let client = reqwest::Client::new();
+                let service = build_service(client.clone());
+                let to_fetch: Vec<_> = responses
+                    .iter()
+                    .map(|c| fetch_versions(service.clone(), &c["versions_url"]))
+                    .collect();
                 let data = try_join_all(to_fetch).await?;
-                process_collection_data(pool.clone(), data, true).await?
+                process_collection_data(pool.clone(), service.clone(), data, true).await?
             };
         }
     }
@@ -152,7 +157,7 @@ pub async fn mirror_content(
                 .context("Failed to join next_link")?
         } else if content_type == "collections" {
             info!("Syncing collections");
-            sync_collections(pool.clone(), &results, client.clone(), service.clone()).await?;
+            sync_collections(pool.clone(), &results, service.clone()).await?;
             if results.as_object().unwrap()["links"]["next"]
                 .as_str()
                 .is_none()

@@ -86,12 +86,12 @@ pub fn build_service(client: Client) -> Buffer<ConcurrencyLimit<RateLimit<Client
 
 pub async fn request(
     url: String,
-    client: &Client,
     mut service: Buffer<ConcurrencyLimit<RateLimit<Client>>, Request>,
 ) -> (
     Buffer<ConcurrencyLimit<RateLimit<Client>>, Request>,
     Response,
 ) {
+    let client = reqwest::Client::new();
     let http_request = client.get(url).build().unwrap();
     let mut is_ready = service.ready().await.is_ok();
     while !is_ready {
