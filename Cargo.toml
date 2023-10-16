@@ -1,6 +1,6 @@
 [package]
 name = "groot"
-version = "0.6.0"
+version = "0.6.1"
 description = "The coolest guardian of the galaxy!"
 repository = "https://github.com/fao89/groot"
 authors = ["Fabricio Aguiar <fabricio.aguiar@gmail.com>"]
