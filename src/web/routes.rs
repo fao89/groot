@@ -223,7 +223,7 @@ async fn role_version_list(path: web::Path<(String, String)>) -> impl Responder 
     let config = crate::config::Config::from_env().unwrap();
     let path = format!("roles/{namespace}/{name}/versions");
     let mut refs = Vec::new();
-    for entry in std::fs::read_dir(&format!("content/{path}"))
+    for entry in std::fs::read_dir(format!("content/{path}"))
         .map_err(error::ErrorInternalServerError)
         .unwrap()
     {
@@ -413,7 +413,7 @@ async fn collection_version_list(path: web::Path<(String, String)>) -> impl Resp
     let (namespace, name) = path.into_inner();
     let path = format!("collections/{namespace}/{name}/versions");
     let mut refs = Vec::new();
-    for entry in std::fs::read_dir(&format!("content/{path}"))
+    for entry in std::fs::read_dir(format!("content/{path}"))
         .map_err(error::ErrorInternalServerError)
         .unwrap()
     {
