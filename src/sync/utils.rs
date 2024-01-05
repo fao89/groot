@@ -20,7 +20,7 @@ pub async fn download_tar(filename: &str, response: reqwest::Response) -> Result
     Ok(())
 }
 
-pub async fn get_with_retry(url: &str) -> Result<reqwest::Response> {
+async fn get_with_retry(url: &str) -> Result<reqwest::Response> {
     let response = match reqwest::get(url).await {
         Ok(mut resp) => {
             let status_to_retry = ["429", "502", "503", "504", "520"];
