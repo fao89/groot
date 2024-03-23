@@ -105,6 +105,6 @@ pub fn a2b_base64(b: Vec<u8>, strict_mode: bool) -> Result<Vec<u8>, base64::Deco
             decoded.len() / 3 * 4 + 1,
             0,
         )),
-        _ => Err(base64::DecodeError::InvalidLength),
+        _ => Err(base64::DecodeError::InvalidLength(quad_pos)),
     }
 }
