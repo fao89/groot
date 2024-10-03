@@ -19,6 +19,7 @@ use tokio::io::AsyncWriteExt;
 use tower::buffer::Buffer;
 use tower::limit::{ConcurrencyLimit, RateLimit};
 
+#[allow(dead_code)]
 #[derive(Debug, Clone)]
 pub struct CollectionData {
     pub namespace: String,
