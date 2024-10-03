@@ -96,6 +96,12 @@ jobs:
     steps:
       - uses: actions/checkout@v2
 
+      - name: Install libpq
+        run: |
+          brew install libpq
+          brew link --force libpq
+          echo "PQ_LIB_DIR=$(brew --prefix libpq)/lib" >> $GITHUB_ENV
+
       - uses: actions-rs/toolchain@v1
         with:
           profile: minimal
