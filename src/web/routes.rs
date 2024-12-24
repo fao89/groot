@@ -161,7 +161,7 @@ async fn start_req_sync(
         .map_err(error::ErrorBadRequest)
         .unwrap()
         .unwrap();
-    while field.name() != "requirements" {
+    while field.name().unwrap() != "requirements" {
         field = payload
             .try_next()
             .await
@@ -285,7 +285,7 @@ async fn collection_post(
         .map_err(error::ErrorBadRequest)
         .unwrap()
         .unwrap();
-    while field.name() != "file" {
+    while field.name().unwrap() != "file" {
         field = payload
             .try_next()
             .await
@@ -293,7 +293,7 @@ async fn collection_post(
             .unwrap()
             .unwrap();
     }
-    let filename = field.content_disposition().get_filename().unwrap();
+    let filename = field.content_disposition().unwrap().get_filename().unwrap();
     let parts = filename.split('-').collect::<Vec<&str>>();
     if parts.len() != 3 {
         return HttpResponse::BadRequest().json(
@@ -319,7 +319,7 @@ async fn collection_post(
     actix_web::rt::spawn(async move {
         import_task(
             task_uuid.as_str(),
-            field.content_disposition().get_filename().unwrap(),
+            field.content_disposition().unwrap().get_filename().unwrap(),
             field.headers(),
             data,
             db_pool,
