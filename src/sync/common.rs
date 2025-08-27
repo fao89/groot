@@ -101,13 +101,16 @@ pub async fn process_requirements(
             } else {
                 info!("Syncing collections");
                 let client = reqwest::Client::new();
-                let service = build_service(client.clone());
-                let to_fetch: Vec<_> = responses
-                    .iter()
-                    .map(|c| fetch_versions(service.clone(), &c["versions_url"]))
-                    .collect();
+
+                // Create separate services for each fetch operation
+                let mut to_fetch = Vec::new();
+                for c in responses.iter() {
+                    let service = build_service(client.clone());
+                    to_fetch.push(fetch_versions(service, &c["versions_url"]));
+                }
                 let data = try_join_all(to_fetch).await?;
-                process_collection_data(pool.clone(), service.clone(), data, true).await?
+
+                process_collection_data(pool.clone(), data, true).await?
             };
         }
     }
@@ -141,8 +144,7 @@ pub async fn mirror_content(
     } else {
         panic!("Invalid content type!")
     };
-    let client = reqwest::Client::new();
-    let service = build_service(client.clone());
+
     loop {
         let results = get_json(target.as_str()).await.unwrap();
         if content_type == "roles" {
@@ -157,7 +159,7 @@ pub async fn mirror_content(
                 .context("Failed to join next_link")?
         } else if content_type == "collections" {
             info!("Syncing collections");
-            sync_collections(pool.clone(), &results, service.clone()).await?;
+            sync_collections(pool.clone(), &results).await?;
             if results.as_object().unwrap()["links"]["next"]
                 .as_str()
                 .is_none()

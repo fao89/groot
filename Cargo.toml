@@ -34,4 +34,4 @@ diesel = { version = "2.2", features = ["postgres", "r2d2", "serde_json"] }
 diesel_migrations = "2.2"
 uuid = { version = "1.18", features = ["v4"] }
 base64 = "0.22"
-tower = { version = "0.4", features = ["limit", "util", "buffer"] }
+tower = { version = "0.5", features = ["limit", "util", "buffer"] }
