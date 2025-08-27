@@ -98,7 +98,7 @@ async fn fetch_role_version(data: &Value, version: &Value) -> Result<()> {
     let response = reqwest::get(download_url.as_str())
         .await
         .with_context(|| format!("Failed to download {download_url}"))?;
-    let filename = download_url.path_segments().unwrap().last().unwrap();
+    let filename = download_url.path_segments().unwrap().next_back().unwrap();
     info!(
         "Downloading {}-{}-{}",
         namespace,
