@@ -1,53 +1,66 @@
-version: "3.4"
+version: '3.8'
+
 services:
   redis:
-    image: redis:alpine3.18
+    image: redis:7-alpine
+    command: redis-server --appendonly yes --maxmemory 256mb --maxmemory-policy allkeys-lru
     volumes:
-      - "redis_data:/data"
-    restart: always
+      - redis_data:/data
+    restart: unless-stopped
     healthcheck:
-      test: [ "CMD-SHELL", "redis-cli -h 127.0.0.1 -p 6379" ]
-      interval: 10s
-      timeout: 5s
-      retries: 5
-    ports:
-      - 6379:6379
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+    expose:
+      - "6379"
     deploy:
       resources:
         limits:
-          memory: '512M'
-          cpus: '1'
+          memory: 256M
+          cpus: '0.5'
+        reservations:
+          memory: 128M
+          cpus: '0.25'
+    networks:
+      - groot-network
+
   postgres:
-    image: postgres:alpine3.18
-    restart: always
+    image: postgres:16-alpine
+    restart: unless-stopped
     healthcheck:
-      test: [ "CMD-SHELL", "pg_isready -U groot" ]
-      interval: 10s
-      timeout: 5s
-      retries: 5
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
     environment:
       POSTGRES_PASSWORD: groot
       POSTGRES_USER: groot
       POSTGRES_DB: groot
+      POSTGRES_INITDB_ARGS: "--auth-host=scram-sha-256"
+      POSTGRES_HOST_AUTH_METHOD: scram-sha-256
     volumes:
-      - "pg_data:/var/lib/postgresql"
-    ports:
-      - 5432:5432
+      - pg_data:/var/lib/postgresql/data
+    expose:
+      - "5432"
     deploy:
       resources:
         limits:
-          memory: '512M'
+          memory: 512M
           cpus: '1'
+        reservations:
+          memory: 256M
+          cpus: '0.5'
+    networks:
+      - groot-network
+
   groot_api:
     container_name: groot_api
     build:
       context: .
       dockerfile: Dockerfile
-      cache_from:
-        - rust:latest
-    links:
-      - postgres
-      - redis
     depends_on:
       postgres:
         condition: service_healthy
@@ -58,20 +71,31 @@ services:
       SERVER.PORT: 3030
       DATABASE_URL: postgres://groot:groot@postgres:5432/groot
       REDIS_URL: redis://redis:6379
+      RUST_LOG: ${RUST_LOG:-info}
     volumes:
-      - "groot:/content"
+      - groot_content:/content
+    restart: unless-stopped
     deploy:
       resources:
         limits:
-          memory: '1G'
+          memory: 1G
           cpus: '2'
+        reservations:
+          memory: 512M
+          cpus: '1'
     ports:
-      - 3030:3030
+      - "${HOST_PORT:-3030}:3030"
+    networks:
+      - groot-network
 
 volumes:
-  groot:
-    name: groot${DEV_VOLUME_SUFFIX:-dev}
+  groot_content:
+    name: groot_content${DEV_VOLUME_SUFFIX:-dev}
   pg_data:
     name: pg_data${DEV_VOLUME_SUFFIX:-dev}
   redis_data:
     name: redis_data${DEV_VOLUME_SUFFIX:-dev}
+
+networks:
+  groot-network:
+    driver: bridge

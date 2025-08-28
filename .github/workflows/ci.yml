@@ -120,7 +120,7 @@ jobs:
           command: test
   image:
     runs-on: ubuntu-latest
-    if: github.event_name != 'pull_request'
+    if: github.event_name != 'pull_request' && github.ref_name == 'main'
     needs: [ubuntu, macos]
     steps:
       - uses: actions/checkout@v3

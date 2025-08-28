@@ -1,3 +1,40 @@
+# Build artifacts
 target/
+Cargo.lock
+
+# IDE and editor files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Git
 .git/
 .github/
+.gitignore
+
+# Documentation
+README.md
+*.md
+docs/
+
+# Docker files
+Dockerfile*
+docker-compose*.yml
+.dockerignore
+
+# Environment and config
+.env*
+*.log
+
+# Test artifacts
+coverage/
+*.profraw
+
+# Content directories (if they exist)
+content/
