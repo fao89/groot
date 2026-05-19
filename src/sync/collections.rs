@@ -1,6 +1,7 @@
 use super::{get_json, request};
 use crate::models::{self, CollectionNew, CollectionVersionNew};
 use crate::schema::collection_versions;
+use crate::sync::utils::RateLimitedHttpService;
 use actix_web::web;
 use anyhow::{Context, Result};
 use diesel::pg::upsert::excluded;
@@ -11,13 +12,10 @@ use diesel::{
 };
 use futures::future::try_join_all;
 use log::info;
-use reqwest::{Client, Request};
 use serde_json::Value;
 use std::collections::{HashMap, HashSet};
 use tokio::fs::File;
 use tokio::io::AsyncWriteExt;
-use tower::buffer::Buffer;
-use tower::limit::{ConcurrencyLimit, RateLimit};
 
 #[allow(dead_code)]
 #[derive(Debug, Clone)]
@@ -30,10 +28,7 @@ pub struct CollectionData {
     pub metadata: Value,
 }
 
-pub async fn get_version(
-    url: String,
-    service: Buffer<ConcurrencyLimit<RateLimit<Client>>, Request>,
-) -> Result<Value> {
+pub async fn get_version(url: String, service: RateLimitedHttpService) -> Result<Value> {
     let (service, resp) = request(url, service).await;
     let status = resp.status().as_str().to_string();
     let json_response = resp.json::<Value>().await.unwrap();
@@ -69,34 +64,33 @@ pub async fn get_version(
 pub async fn sync_collections(
     pool: web::Data<Pool<ConnectionManager<PgConnection>>>,
     response: &Value,
-    service: Buffer<ConcurrencyLimit<RateLimit<Client>>, Request>,
 ) -> Result<()> {
     let results = response.as_object().unwrap()["data"].as_array().unwrap();
     let galaxy_url = dotenv::var("GALAXY_URL").unwrap_or("https://galaxy.ansible.com/".to_string());
-    let collection_version_futures: Vec<_> = results
-        .iter()
-        .map(|v| {
-            let nspace = v["collection_version"]["namespace"]
-                .as_str()
-                .unwrap()
-                .to_string();
-            let n = v["collection_version"]["name"]
-                .as_str()
-                .unwrap()
-                .to_string();
-            let vs = v["collection_version"]["version"]
-                .as_str()
-                .unwrap()
-                .to_string();
-            get_version(
-                format!(
-                    "{}api/v3/plugin/ansible/content/published/collections/index/{}/{}/versions/{}/",
-                    galaxy_url, nspace, n, vs
-                ),
-                service.clone(),
-            )
-        })
-        .collect();
+    let client = reqwest::Client::new();
+    let mut collection_version_futures = Vec::new();
+    for v in results.iter() {
+        let nspace = v["collection_version"]["namespace"]
+            .as_str()
+            .unwrap()
+            .to_string();
+        let n = v["collection_version"]["name"]
+            .as_str()
+            .unwrap()
+            .to_string();
+        let vs = v["collection_version"]["version"]
+            .as_str()
+            .unwrap()
+            .to_string();
+        let service = crate::sync::utils::build_service(client.clone());
+        collection_version_futures.push(get_version(
+            format!(
+                "{}api/v3/plugin/ansible/content/published/collections/index/{}/{}/versions/{}/",
+                galaxy_url, nspace, n, vs
+            ),
+            service,
+        ));
+    }
     let cversions = try_join_all(collection_version_futures)
         .await
         .context("Failed to join collection versions futures")?;
@@ -167,7 +161,7 @@ pub async fn sync_collections(
 }
 
 pub async fn fetch_versions(
-    mut service: Buffer<ConcurrencyLimit<RateLimit<Client>>, Request>,
+    mut service: RateLimitedHttpService,
     url: &Value,
 ) -> Result<Vec<CollectionData>> {
     let mut versions: Vec<CollectionData> = Vec::new();
@@ -186,19 +180,19 @@ pub async fn fetch_versions(
             .unwrap();
 
         // Downloading
-        let collection_version_futures: Vec<_> = results
-            .iter()
-            .map(|v| {
-                get_version(
-                    format!(
-                        "{}{}",
-                        galaxy_url.strip_suffix('/').unwrap(),
-                        v["href"].as_str().unwrap()
-                    ),
-                    service.clone(),
-                )
-            })
-            .collect();
+        let client = reqwest::Client::new();
+        let mut collection_version_futures = Vec::new();
+        for v in results.iter() {
+            let service = crate::sync::utils::build_service(client.clone());
+            collection_version_futures.push(get_version(
+                format!(
+                    "{}{}",
+                    galaxy_url.strip_suffix('/').unwrap(),
+                    v["href"].as_str().unwrap()
+                ),
+                service,
+            ));
+        }
         let cversions = try_join_all(collection_version_futures)
             .await
             .context("Failed to join collection versions futures")?;
@@ -231,7 +225,6 @@ pub async fn fetch_versions(
 
 pub async fn process_collection_data(
     pool: web::Data<Pool<ConnectionManager<PgConnection>>>,
-    service: Buffer<ConcurrencyLimit<RateLimit<Client>>, Request>,
     data: Vec<Vec<CollectionData>>,
     fetch_dependencies: bool,
 ) -> Result<()> {
@@ -326,10 +319,12 @@ pub async fn process_collection_data(
                 info!("Fetching collection dependencies");
                 let dependencies: Vec<_> = deps.keys().map(|url| get_json(url)).collect();
                 let deps_json = try_join_all(dependencies).await.unwrap();
-                let to_fetch: Vec<_> = deps_json
-                    .iter()
-                    .map(|c| fetch_versions(service.clone(), &c["versions_url"]))
-                    .collect();
+                let client = reqwest::Client::new();
+                let mut to_fetch = Vec::new();
+                for c in deps_json.iter() {
+                    let service = crate::sync::utils::build_service(client.clone());
+                    to_fetch.push(fetch_versions(service, &c["versions_url"]));
+                }
                 to_process = try_join_all(to_fetch).await.unwrap();
             } else {
                 break;

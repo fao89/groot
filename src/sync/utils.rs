@@ -2,13 +2,46 @@ use anyhow::{Context, Result};
 use log::warn;
 use reqwest::{Client, Request, Response};
 use serde_json::Value;
+use std::future::Future;
+use std::pin::Pin;
+use std::task::{Context as TaskContext, Poll};
 use std::time::Duration;
 use tokio::fs::File;
 use tokio::io::AsyncWriteExt;
 use tokio::time;
-use tower::buffer::Buffer;
-use tower::limit::{ConcurrencyLimit, RateLimit};
-use tower::{Service, ServiceExt};
+use tower::util::BoxService;
+use tower::{Service, ServiceBuilder, ServiceExt};
+
+// Type alias for our rate-limited service
+pub type RateLimitedHttpService =
+    BoxService<Request, Response, Box<dyn std::error::Error + Send + Sync>>;
+
+// Wrapper around reqwest::Client to implement the Service trait
+#[derive(Clone)]
+pub struct HttpService {
+    client: Client,
+}
+
+impl HttpService {
+    fn new(client: Client) -> Self {
+        Self { client }
+    }
+}
+
+impl Service<Request> for HttpService {
+    type Response = Response;
+    type Error = reqwest::Error;
+    type Future = Pin<Box<dyn Future<Output = Result<Self::Response, Self::Error>> + Send>>;
+
+    fn poll_ready(&mut self, _cx: &mut TaskContext<'_>) -> Poll<Result<(), Self::Error>> {
+        Poll::Ready(Ok(()))
+    }
+
+    fn call(&mut self, req: Request) -> Self::Future {
+        let client = self.client.clone();
+        Box::pin(async move { client.execute(req).await })
+    }
+}
 
 pub async fn download_tar(filename: &str, response: reqwest::Response) -> Result<()> {
     let mut file = match File::create(filename).await {
@@ -62,7 +95,7 @@ pub async fn get_json(url: &str) -> Result<Value> {
     Ok(values)
 }
 
-pub fn build_service(client: Client) -> Buffer<ConcurrencyLimit<RateLimit<Client>>, Request> {
+pub fn build_service(client: Client) -> RateLimitedHttpService {
     let buffer = dotenv::var("GROOT_BUFFER")
         .unwrap_or("100".to_string())
         .as_str()
@@ -77,26 +110,29 @@ pub fn build_service(client: Client) -> Buffer<ConcurrencyLimit<RateLimit<Client
         .unwrap_or("5".to_string())
         .parse::<u64>()
         .unwrap();
-    tower::ServiceBuilder::new()
-        .buffer(buffer)
-        .concurrency_limit(limit)
+
+    let http_service = HttpService::new(client);
+
+    ServiceBuilder::new()
         .rate_limit(total_req, Duration::from_secs(1))
-        .service(client.clone())
+        .concurrency_limit(limit)
+        .buffer(buffer)
+        .service(http_service)
+        .boxed()
 }
 
 pub async fn request(
     url: String,
-    mut service: Buffer<ConcurrencyLimit<RateLimit<Client>>, Request>,
-) -> (
-    Buffer<ConcurrencyLimit<RateLimit<Client>>, Request>,
-    Response,
-) {
-    let client = reqwest::Client::new();
-    let http_request = client.get(url).build().unwrap();
-    let mut is_ready = service.ready().await.is_ok();
-    while !is_ready {
-        is_ready = service.ready().await.is_ok();
-    }
-    let response = service.call(http_request).await.unwrap();
+    mut service: RateLimitedHttpService,
+) -> (RateLimitedHttpService, Response) {
+    let client = Client::new();
+    let request = client.get(&url).build().unwrap();
+
+    // Wait for the service to be ready
+    let ready_service = service.ready().await.unwrap();
+
+    // Make the request
+    let response = ready_service.call(request).await.unwrap();
+
     (service, response)
 }
